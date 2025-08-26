@@ -1,0 +1,68 @@
+@model FestivalManagementWeb.Models.TextKeyValueViewModel
+
+@{
+    ViewData["Title"] = "テキストデータ管理";
+    var isEditing = Model.ItemToEdit.Id != Guid.Empty;
+}
+
+<h1>@ViewData["Title"]</h1>
+
+<hr />
+
+<div class="row">
+    <div class="col-md-4">
+        <h4>@(isEditing ? "データの更新" : "新規作成")</h4>
+        <form asp-action="Upsert">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <input type="hidden" asp-for="ItemToEdit.Id" />
+            <div class="form-group">
+                <label asp-for="ItemToEdit.Key" class="control-label"></label>
+                <input asp-for="ItemToEdit.Key" class="form-control" />
+                <span asp-validation-for="ItemToEdit.Key" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="ItemToEdit.Value" class="control-label"></label>
+                <textarea asp-for="ItemToEdit.Value" class="form-control"></textarea>
+                <span asp-validation-for="ItemToEdit.Value" class="text-danger"></span>
+            </div>
+            <div class="form-group mt-3">
+                <input type="submit" value="@(isEditing ? "更新" : "作成")" class="btn btn-primary" />
+                @if (isEditing)
+                {
+                    <a asp-action="Index" class="btn btn-secondary">キャンセル</a>
+                }
+            </div>
+        </form>
+    </div>
+    <div class="col-md-8">
+        <h4>データ一覧</h4>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>@Html.DisplayNameFor(model => model.ItemToEdit.Key)</th>
+                    <th>@Html.DisplayNameFor(model => model.ItemToEdit.Value)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model.AllItems)
+                {
+                    <tr>
+                        <td>@Html.DisplayFor(modelItem => item.Key)</td>
+                        <td>@Html.DisplayFor(modelItem => item.Value)</td>
+                        <td>
+                            <a asp-action="Index" asp-route-id="@item.Id">編集</a> |
+                            <form asp-action="Delete" asp-route-id="@item.Id" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-link text-danger p-0" onclick="return confirm('本当に削除しますか？');">削除</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

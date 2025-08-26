@@ -1,0 +1,12 @@
+@{
+    ViewData["Title"] = "ログイン";
+}
+
+<h2>@ViewData["Title"]</h2>
+<p>以下のボタンをクリックして、Googleアカウントでログインしてください。</p>
+
+<form asp-controller="Account" asp-action="ExternalLogin" asp-route-returnUrl="@Context.Request.Query["ReturnUrl"]" method="post">
+    <div>
+        <button type="submit" class="btn btn-primary">Googleでログイン</button>
+    </div>
+</form>

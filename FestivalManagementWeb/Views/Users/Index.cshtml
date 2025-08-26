@@ -1,0 +1,65 @@
+@model FestivalManagementWeb.Models.UserViewModel
+@using System.Security.Claims
+
+@{
+    ViewData["Title"] = "ユーザー管理";
+    var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+}
+
+<h1>@ViewData["Title"]</h1>
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
+}
+
+<hr />
+
+<div class="row">
+    <div class="col-md-4">
+        <h4>新規ユーザーの追加</h4>
+        <p class="small">ここに追加されたメールアドレスを持つGoogleアカウントのみが、このシステムにログインできます。</p>
+        <form asp-action="Create" method="post">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="NewUserEmail" class="control-label"></label>
+                <input asp-for="NewUserEmail" class="form-control" />
+                <span asp-validation-for="NewUserEmail" class="text-danger"></span>
+            </div>
+            <div class="form-group mt-3">
+                <input type="submit" value="追加" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+    <div class="col-md-8">
+        <h4>ユーザー一覧</h4>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ユーザー名 (メールアドレス)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var user in Model.Users)
+                {
+                    <tr>
+                        <td>@user.UserName</td>
+                        <td>
+                            @if (user.Id.ToString() != currentUserId)
+                            {
+                                <form asp-action="Delete" asp-route-id="@user.Id" method="post" class="d-inline">
+                                    <button type="submit" class="btn btn-link text-danger p-0" onclick="return confirm('本当にこのユーザーを削除しますか？');">削除</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
