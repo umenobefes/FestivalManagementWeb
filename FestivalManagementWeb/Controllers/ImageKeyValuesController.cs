@@ -2,11 +2,12 @@ using FestivalManagementWeb.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Bson;
 using MongoDB.Driver;
+using MongoDB.Driver.GridFS;
 using SkiaSharp;
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace FestivalManagementWeb.Controllers
@@ -15,63 +16,145 @@ namespace FestivalManagementWeb.Controllers
     public class ImageKeyValuesController : Controller
     {
         private readonly IMongoCollection<ImageKeyValue> _imageCollection;
+        private readonly IGridFSBucket _bucket;
         private const int MaxDimension = 1920;
 
-        public ImageKeyValuesController(IMongoDatabase database)
+        public ImageKeyValuesController(IMongoDatabase database, IGridFSBucket bucket)
         {
             _imageCollection = database.GetCollection<ImageKeyValue>("ImageKeyValues");
+            _bucket = bucket;
         }
 
-        public async Task<IActionResult> Index()
+        public async Task<IActionResult> Index(Guid? id)
         {
+            var allItems = await _imageCollection.Find(_ => true).ToListAsync();
             var viewModel = new ImageKeyValueViewModel
             {
-                AllItems = await _imageCollection.Find(_ => true).ToListAsync()
+                AllItems = allItems,
+                ItemToEdit = new ImageKeyValue()
             };
+
+            if (id != null)
+            {
+                var item = await _imageCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+                if (item != null)
+                {
+                    viewModel.ItemToEdit = item;
+                }
+            }
+
             return View(viewModel);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Upsert(string key, IFormFile imageFile)
+        public async Task<IActionResult> Upsert(ImageKeyValueViewModel model)
         {
-            if (string.IsNullOrEmpty(key) || imageFile == null || imageFile.Length == 0)
+            var imageKeyValue = model.ItemToEdit;
+
+            var existingByKey = await _imageCollection.Find(x => x.Key == imageKeyValue.Key && x.Id != imageKeyValue.Id).FirstOrDefaultAsync();
+            if (existingByKey != null)
             {
-                ModelState.AddModelError("", "キーと画像ファイルの両方を指定してください。");
+                ModelState.AddModelError("ItemToEdit.Key", "このキーは既に使用されています。");
             }
-            else
+
+            if (model.ImageFile == null && imageKeyValue.Id == Guid.Empty)
             {
-                using (var memoryStream = new MemoryStream())
+                ModelState.AddModelError("ImageFile", "画像をアップロードしてください。");
+            }
+
+            if (ModelState.IsValid)
+            {
+                ObjectId? newGridFSFileId = null;
+
+                if (model.ImageFile != null && model.ImageFile.Length > 0)
                 {
-                    await imageFile.CopyToAsync(memoryStream);
-                    var imageBytes = ResizeImage(memoryStream.ToArray());
-
-                    var existing = await _imageCollection.Find(x => x.Key == key).FirstOrDefaultAsync();
-                    if (existing != null)
+                    // If updating, delete the old file from GridFS
+                    if (imageKeyValue.Id != Guid.Empty)
                     {
-                        existing.Value = imageBytes;
-                        existing.ContentType = imageFile.ContentType;
-                        await _imageCollection.ReplaceOneAsync(x => x.Id == existing.Id, existing);
-                    }
-                    else
-                    {
-                        var newImage = new ImageKeyValue
+                        var existingItem = await _imageCollection.Find(x => x.Id == imageKeyValue.Id).FirstOrDefaultAsync();
+                        if (existingItem != null && existingItem.GridFSFileId != ObjectId.Empty)
                         {
-                            Key = key,
-                            Value = imageBytes,
-                            ContentType = imageFile.ContentType
-                        };
-                        await _imageCollection.InsertOneAsync(newImage);
+                            await _bucket.DeleteAsync(existingItem.GridFSFileId);
+                        }
                     }
-                    return RedirectToAction(nameof(Index));
+
+                    // Resize and upload the new image to GridFS
+                    using (var memoryStream = new MemoryStream())
+                    {
+                        await model.ImageFile.CopyToAsync(memoryStream);
+                        var imageBytes = ResizeImage(memoryStream.ToArray());
+                        
+                        newGridFSFileId = await _bucket.UploadFromBytesAsync(model.ImageFile.FileName, imageBytes);
+                        imageKeyValue.GridFSFileId = newGridFSFileId.Value;
+                    }
                 }
+
+                if (imageKeyValue.Id == Guid.Empty)
+                {
+                    imageKeyValue.Id = Guid.NewGuid();
+                    await _imageCollection.InsertOneAsync(imageKeyValue);
+                }
+                else
+                {
+                    // If no new file was uploaded, keep the existing GridFS file ID
+                    if (newGridFSFileId == null)
+                    {
+                        var existingItem = await _imageCollection.Find(x => x.Id == imageKeyValue.Id).FirstOrDefaultAsync();
+                        imageKeyValue.GridFSFileId = existingItem?.GridFSFileId ?? ObjectId.Empty;
+                    }
+                    await _imageCollection.ReplaceOneAsync(x => x.Id == imageKeyValue.Id, imageKeyValue);
+                }
+                return RedirectToAction(nameof(Index));
             }
 
-            var viewModel = new ImageKeyValueViewModel
+            model.AllItems = await _imageCollection.Find(_ => true).ToListAsync();
+            return View("Index", model);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(Guid id)
+        {
+            var itemToDelete = await _imageCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+            if (itemToDelete != null)
             {
-                AllItems = await _imageCollection.Find(_ => true).ToListAsync()
-            };
-            return View("Index", viewModel);
+                // Delete from GridFS only if the ID is valid
+                if (itemToDelete.GridFSFileId != ObjectId.Empty)
+                {
+                    try
+                    {
+                        await _bucket.DeleteAsync(itemToDelete.GridFSFileId);
+                    }
+                    catch (GridFSFileNotFoundException)
+                    {
+                        // Ignore if the file is already missing in GridFS for some reason
+                    }
+                }
+                // Always delete the metadata document
+                await _imageCollection.DeleteOneAsync(x => x.Id == id);
+            }
+            return RedirectToAction(nameof(Index));
+        }
+
+        public async Task<IActionResult> GetImage(Guid id)
+        {
+            var item = await _imageCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+            if (item == null || item.GridFSFileId == ObjectId.Empty)
+            {
+                return NotFound();
+            }
+
+            try
+            {
+                var stream = await _bucket.OpenDownloadStreamAsync(item.GridFSFileId);
+                // The resized image is always JPEG
+                return File(stream, "image/jpeg");
+            }
+            catch (GridFSFileNotFoundException)
+            {
+                return NotFound();
+            }
         }
 
         private byte[] ResizeImage(byte[] originalBytes)
@@ -81,7 +164,11 @@ namespace FestivalManagementWeb.Controllers
             {
                 if (originalBitmap.Width <= MaxDimension && originalBitmap.Height <= MaxDimension)
                 {
-                    return originalBytes;
+                    using (var image = SKImage.FromBitmap(originalBitmap))
+                    using (var data = image.Encode(SKEncodedImageFormat.Jpeg, 90))
+                    {
+                        return data.ToArray();
+                    }
                 }
 
                 int newWidth, newHeight;
@@ -107,24 +194,6 @@ namespace FestivalManagementWeb.Controllers
                     }
                 }
             }
-        }
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Delete(Guid id)
-        {
-            await _imageCollection.DeleteOneAsync(x => x.Id == id);
-            return RedirectToAction(nameof(Index));
-        }
-
-        public async Task<IActionResult> GetImage(Guid id)
-        {
-            var image = await _imageCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
-            if (image == null)
-            {
-                return NotFound();
-            }
-            return File(image.Value, image.ContentType);
         }
     }
 }

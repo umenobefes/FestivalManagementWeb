@@ -2,7 +2,6 @@
 
 @{
     ViewData["Title"] = "テキストデータ管理";
-    var isEditing = Model.ItemToEdit.Id != Guid.Empty;
 }
 
 <h1>@ViewData["Title"]</h1>
@@ -11,9 +10,11 @@
 
 <div class="row">
     <div class="col-md-4">
-        <h4>@(isEditing ? "データの更新" : "新規作成")</h4>
+        <h4>新規作成</h4>
         <form asp-action="Upsert">
+            @Html.AntiForgeryToken()
             <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            @* Keep a dummy Id field for model binding consistency if needed, but it will be empty *@
             <input type="hidden" asp-for="ItemToEdit.Id" />
             <div class="form-group">
                 <label asp-for="ItemToEdit.Key" class="control-label"></label>
@@ -26,16 +27,15 @@
                 <span asp-validation-for="ItemToEdit.Value" class="text-danger"></span>
             </div>
             <div class="form-group mt-3">
-                <input type="submit" value="@(isEditing ? "更新" : "作成")" class="btn btn-primary" />
-                @if (isEditing)
-                {
-                    <a asp-action="Index" class="btn btn-secondary">キャンセル</a>
-                }
+                <input type="submit" value="作成" class="btn btn-primary" />
             </div>
         </form>
     </div>
     <div class="col-md-8">
-        <h4>データ一覧</h4>
+        <div class="d-flex justify-content-between align-items-center">
+            <h4>データ一覧</h4>
+            <button id="applyToSiteTextBtn" class="btn btn-info">Webサイトに適応</button>
+        </div>
         <table class="table">
             <thead>
                 <tr>
@@ -51,9 +51,17 @@
                         <td>@Html.DisplayFor(modelItem => item.Key)</td>
                         <td>@Html.DisplayFor(modelItem => item.Value)</td>
                         <td>
-                            <a asp-action="Index" asp-route-id="@item.Id">編集</a> |
+                            <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                    data-bs-toggle="modal" 
+                                    data-bs-target="#textUpdateModal"
+                                    data-id="@item.Id"
+                                    data-key="@item.Key"
+                                    data-value="@item.Value">
+                                編集
+                            </button>
                             <form asp-action="Delete" asp-route-id="@item.Id" method="post" class="d-inline">
-                                <button type="submit" class="btn btn-link text-danger p-0" onclick="return confirm('本当に削除しますか？');">削除</button>
+                                @Html.AntiForgeryToken()
+                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" onclick="return confirm('本当に削除しますか？');">削除</button>
                             </form>
                         </td>
                     </tr>
@@ -62,6 +70,8 @@
         </table>
     </div>
 </div>
+
+<partial name="_TextUpdateModal" model="Model" />
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}

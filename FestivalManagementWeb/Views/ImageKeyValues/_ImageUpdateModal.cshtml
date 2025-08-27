@@ -1,0 +1,34 @@
+@model FestivalManagementWeb.Models.ImageKeyValueViewModel
+
+<!-- Image Update Modal -->
+<div class="modal fade" id="imageUpdateModal" tabindex="-1" aria-labelledby="imageUpdateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form asp-action="Upsert" enctype="multipart/form-data">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="imageUpdateModalLabel">画像の更新</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="ItemToEdit.Id" id="modalImageId" />
+                    <input type="hidden" name="ItemToEdit.Key" id="modalImageKey" />
+                    
+                    <div class="mb-3">
+                        <label class="form-label">キー</label>
+                        <p class="fw-bold" id="modalImageKeyDisplay"></p>
+                    </div>
+
+                    <div class="mb-3">
+                        <label asp-for="ImageFile" class="form-label"></label>
+                        <input name="ImageFile" type="file" class="form-control" required />
+                        <span asp-validation-for="ImageFile" class="text-danger"></span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-primary">更新する</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

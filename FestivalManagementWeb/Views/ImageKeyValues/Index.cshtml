@@ -2,6 +2,7 @@
 
 @{
     ViewData["Title"] = "画像データ管理";
+    var isEditing = Model.ItemToEdit.Id != Guid.Empty;
 }
 
 <h1>@ViewData["Title"]</h1>
@@ -10,30 +11,48 @@
 
 <div class="row">
     <div class="col-md-4">
-        <h4>データの作成・更新</h4>
-        <p class="small">同じキーで画像をアップロードすると、既存の画像が上書きされます。</p>
+        <h4>@(isEditing ? "データの更新" : "新規作成")</h4>
         <form asp-action="Upsert" enctype="multipart/form-data">
-            <div asp-validation-summary="All" class="text-danger"></div>
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <input type="hidden" asp-for="ItemToEdit.Id" />
             <div class="form-group">
-                <label for="key" class="control-label">キー</label>
-                <input name="key" class="form-control" />
+                <label asp-for="ItemToEdit.Key" class="control-label"></label>
+                <input asp-for="ItemToEdit.Key" class="form-control" />
+                <span asp-validation-for="ItemToEdit.Key" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label for="imageFile" class="control-label">画像ファイル</label>
-                <input name="imageFile" type="file" class="form-control" />
+                <label asp-for="ImageFile" class="control-label"></label>
+                <input asp-for="ImageFile" class="form-control" type="file" />
+                <span asp-validation-for="ImageFile" class="text-danger"></span>
             </div>
+
+            @if (isEditing && Model.ItemToEdit.GridFSFileId != MongoDB.Bson.ObjectId.Empty)
+            {
+                <div class="form-group mt-2">
+                    <label>現在の画像</label>
+                    <img src="@Url.Action("GetImage", "ImageKeyValues", new { id = Model.ItemToEdit.Id })" class="img-fluid" alt="Current Image" />
+                </div>
+            }
+
             <div class="form-group mt-3">
-                <input type="submit" value="アップロード" class="btn btn-primary" />
+                <input type="submit" value="@(isEditing ? "更新" : "作成")" class="btn btn-primary" />
+                @if (isEditing)
+                {
+                    <a asp-action="Index" class="btn btn-secondary">キャンセル</a>
+                }
             </div>
         </form>
     </div>
     <div class="col-md-8">
-        <h4>データ一覧</h4>
+        <div class="d-flex justify-content-between align-items-center">
+            <h4>データ一覧</h4>
+            <button id="applyToSiteImageBtn" class="btn btn-info">Webサイトに適応</button>
+        </div>
         <table class="table">
             <thead>
                 <tr>
-                    <th>キー</th>
-                    <th>プレビュー</th>
+                    <th>@Html.DisplayNameFor(model => model.ItemToEdit.Key)</th>
+                    <th>画像</th>
                     <th></th>
                 </tr>
             </thead>
@@ -43,11 +62,17 @@
                     <tr>
                         <td>@Html.DisplayFor(modelItem => item.Key)</td>
                         <td>
-                            <img src="@Url.Action("GetImage", new { id = item.Id })" style="max-width: 150px; max-height: 150px;" />
+                            @if (item.GridFSFileId != MongoDB.Bson.ObjectId.Empty)
+                            {
+                                <img src="@Url.Action("GetImage", "ImageKeyValues", new { id = item.Id })" style="max-width: 100px; max-height: 100px;" alt="@item.Key" />
+                            }
                         </td>
                         <td>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#imageUpdateModal" data-id="@item.Id" data-key="@item.Key">
+                                変更
+                            </button>
                             <form asp-action="Delete" asp-route-id="@item.Id" method="post" class="d-inline">
-                                <button type="submit" class="btn btn-link text-danger p-0" onclick="return confirm('本当に削除しますか？');">削除</button>
+                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" onclick="return confirm('本当に削除しますか？');">削除</button>
                             </form>
                         </td>
                     </tr>
@@ -56,3 +81,10 @@
         </table>
     </div>
 </div>
+
+<partial name="_ImageUpdateModal" model="Model" />
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+

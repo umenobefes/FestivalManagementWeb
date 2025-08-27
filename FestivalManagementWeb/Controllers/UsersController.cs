@@ -2,7 +2,6 @@ using FestivalManagementWeb.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -20,11 +19,11 @@ namespace FestivalManagementWeb.Controllers
         }
 
         // GET: Users
-        public async Task<IActionResult> Index()
+        public IActionResult Index()
         {
             var viewModel = new UserViewModel
             {
-                Users = await _userManager.Users.ToListAsync()
+                Users = _userManager.Users.ToList()
             };
             return View(viewModel);
         }
@@ -62,7 +61,7 @@ namespace FestivalManagementWeb.Controllers
             }
 
             // If we got here, something failed, redisplay form
-            model.Users = await _userManager.Users.ToListAsync();
+            model.Users = _userManager.Users.ToList();
             return View("Index", model);
         }
 

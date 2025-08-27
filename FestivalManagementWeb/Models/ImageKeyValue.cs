@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using System.ComponentModel.DataAnnotations;
 
 namespace FestivalManagementWeb.Models
@@ -8,12 +9,7 @@ namespace FestivalManagementWeb.Models
         [Display(Name = "キー")]
         public string Key { get; set; } = string.Empty;
 
-        [Required]
-        [Display(Name = "画像データ")]
-        public byte[] Value { get; set; } = Array.Empty<byte>();
-
-        [Required]
-        [Display(Name = "コンテントタイプ")]
-        public string ContentType { get; set; } = string.Empty;
+        [Display(Name = "GridFSファイルID")]
+        public ObjectId GridFSFileId { get; set; }
     }
 }

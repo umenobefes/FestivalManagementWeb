@@ -8,10 +8,5 @@ namespace FestivalManagementWeb.Models
     {
         [BsonId]
         public Guid Id { get; set; }
-
-        protected BaseModel()
-        {
-            Id = Guid.NewGuid();
-        }
     }
 }

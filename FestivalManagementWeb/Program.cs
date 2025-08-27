@@ -35,11 +35,18 @@ builder.Services.AddAuthentication(options =>
     {
         options.ClientId = builder.Configuration["Authentication:Google:ClientId"];
         options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
+        options.CallbackPath = new PathString("/signin-google/");
+
     });
 
 // Add MongoDB Client to DI
 builder.Services.AddSingleton<IMongoClient>(new MongoClient(mongoDbSettings.ConnectionString));
 builder.Services.AddScoped(sp => sp.GetRequiredService<IMongoClient>().GetDatabase(mongoDbSettings.DatabaseName));
+builder.Services.AddScoped<MongoDB.Driver.GridFS.IGridFSBucket>(sp =>
+{
+    var database = sp.GetRequiredService<IMongoDatabase>();
+    return new MongoDB.Driver.GridFS.GridFSBucket(database);
+});
 
 
 builder.Services.AddControllersWithViews();
@@ -66,15 +73,18 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}");
 
 // Create Unique Indexes for Keys
-var database = app.Services.GetRequiredService<IMongoDatabase>();
-var textKeyValues = database.GetCollection<TextKeyValue>("TextKeyValues");
-var imageKeyValues = database.GetCollection<ImageKeyValue>("ImageKeyValues");
+using (var scope = app.Services.CreateScope())
+{
+    var database = scope.ServiceProvider.GetRequiredService<IMongoDatabase>();
+    var textKeyValues = database.GetCollection<TextKeyValue>("TextKeyValues");
+    var imageKeyValues = database.GetCollection<ImageKeyValue>("ImageKeyValues");
 
-var textKeyIndex = new CreateIndexModel<TextKeyValue>(Builders<TextKeyValue>.IndexKeys.Ascending(x => x.Key), new CreateIndexOptions { Unique = true });
-var imageKeyIndex = new CreateIndexModel<ImageKeyValue>(Builders<ImageKeyValue>.IndexKeys.Ascending(x => x.Key), new CreateIndexOptions { Unique = true });
+    var textKeyIndex = new CreateIndexModel<TextKeyValue>(Builders<TextKeyValue>.IndexKeys.Ascending(x => x.Key), new CreateIndexOptions { Unique = true });
+    var imageKeyIndex = new CreateIndexModel<ImageKeyValue>(Builders<ImageKeyValue>.IndexKeys.Ascending(x => x.Key), new CreateIndexOptions { Unique = true });
 
-textKeyValues.Indexes.CreateOne(textKeyIndex);
-imageKeyValues.Indexes.CreateOne(imageKeyIndex);
+    textKeyValues.Indexes.CreateOne(textKeyIndex);
+    imageKeyValues.Indexes.CreateOne(imageKeyIndex);
+}
 
 // Seed initial user
 async Task SeedInitialUser(IHost app)
@@ -103,6 +113,5 @@ async Task SeedInitialUser(IHost app)
 }
 
 await SeedInitialUser(app);
-
 
 app.Run();

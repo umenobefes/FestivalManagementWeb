@@ -1,0 +1,35 @@
+@model FestivalManagementWeb.Models.TextKeyValueViewModel
+
+<!-- Text Update Modal -->
+<div class="modal fade" id="textUpdateModal" tabindex="-1" aria-labelledby="textUpdateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form asp-action="Upsert" method="post">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="textUpdateModalLabel">テキストの更新</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="ItemToEdit.Id" id="modalTextId" />
+                    
+                    <div class="mb-3">
+                        <label asp-for="ItemToEdit.Key" class="form-label"></label>
+                        <input name="ItemToEdit.Key" id="modalTextKey" class="form-control" required />
+                        <span asp-validation-for="ItemToEdit.Key" class="text-danger"></span>
+                    </div>
+
+                    <div class="mb-3">
+                        <label asp-for="ItemToEdit.Value" class="form-label"></label>
+                        <textarea name="ItemToEdit.Value" id="modalTextValue" class="form-control" rows="5" required></textarea>
+                        <span asp-validation-for="ItemToEdit.Value" class="text-danger"></span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-primary">更新する</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

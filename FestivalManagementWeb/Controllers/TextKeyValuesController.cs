@@ -20,9 +20,12 @@ namespace FestivalManagementWeb.Controllers
 
         public async Task<IActionResult> Index(Guid? id)
         {
+            var allItems = await _textCollection.Find(_ => true).ToListAsync();
+            System.Diagnostics.Debug.WriteLine($"Found {allItems.Count} documents in TextKeyValues collection.");
+
             var viewModel = new TextKeyValueViewModel
             {
-                AllItems = await _textCollection.Find(_ => true).ToListAsync(),
+                AllItems = allItems,
                 ItemToEdit = new TextKeyValue()
             };
 
@@ -40,34 +43,64 @@ namespace FestivalManagementWeb.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Upsert(TextKeyValue textKeyValue)
+        public async Task<IActionResult> Upsert([Bind("ItemToEdit")] TextKeyValueViewModel model)
         {
+            var textKeyValue = model.ItemToEdit;
+            System.Diagnostics.Debug.WriteLine("Upsert method called.");
             var existingByKey = await _textCollection.Find(x => x.Key == textKeyValue.Key && x.Id != textKeyValue.Id).FirstOrDefaultAsync();
             if (existingByKey != null)
             {
                 ModelState.AddModelError("ItemToEdit.Key", "このキーは既に使用されています。");
             }
 
+            if (!ModelState.IsValid)
+            {
+                System.Diagnostics.Debug.WriteLine("ModelState is INVALID.");
+                foreach (var modelState in ModelState.Values)
+                {
+                    foreach (var error in modelState.Errors)
+                    {
+                        System.Diagnostics.Debug.WriteLine(error.ErrorMessage);
+                    }
+                }
+            }
+
             if (ModelState.IsValid)
             {
-                if (textKeyValue.Id == Guid.Empty)
+                System.Diagnostics.Debug.WriteLine("ModelState is VALID.");
+                try
                 {
-                    textKeyValue.Id = Guid.NewGuid();
-                    await _textCollection.InsertOneAsync(textKeyValue);
+                    if (textKeyValue.Id == Guid.Empty)
+                    {
+                        textKeyValue.Id = Guid.NewGuid();
+                        System.Diagnostics.Debug.WriteLine($"Inserting new document with Id: {textKeyValue.Id}");
+                        await _textCollection.InsertOneAsync(textKeyValue);
+                        System.Diagnostics.Debug.WriteLine("Insert operation completed.");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Replacing document with Id: {textKeyValue.Id}");
+                        var result = await _textCollection.ReplaceOneAsync(x => x.Id == textKeyValue.Id, textKeyValue);
+                        System.Diagnostics.Debug.WriteLine($"Replace result: Matched={result.MatchedCount}, Modified={result.ModifiedCount}");
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    await _textCollection.ReplaceOneAsync(x => x.Id == textKeyValue.Id, textKeyValue);
+                    System.Diagnostics.Debug.WriteLine($"DATABASE OPERATION FAILED: {ex.Message}");
+                    // Optionally log the full stack trace:
+                    // System.Diagnostics.Debug.WriteLine(ex.ToString());
+                    ModelState.AddModelError(string.Empty, "データベース操作中にエラーが発生しました。");
+                    // Re-populate the view model for returning to the view
+                    model.AllItems = await _textCollection.Find(_ => true).ToListAsync();
+                    return View("Index", model);
                 }
                 return RedirectToAction(nameof(Index));
             }
 
-            var viewModel = new TextKeyValueViewModel
-            {
-                AllItems = await _textCollection.Find(_ => true).ToListAsync(),
-                ItemToEdit = textKeyValue
-            };
-            return View("Index", viewModel);
+            // If ModelState is invalid, repopulate the view model and return to the view
+            // If ModelState is invalid, repopulate the AllItems list and return to the view
+            model.AllItems = await _textCollection.Find(_ => true).ToListAsync();
+            return View("Index", model);
         }
 
         [HttpPost]
