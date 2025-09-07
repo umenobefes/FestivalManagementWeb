@@ -41,6 +41,8 @@
                 <tr>
                     <th>@Html.DisplayNameFor(model => model.ItemToEdit.Key)</th>
                     <th>@Html.DisplayNameFor(model => model.ItemToEdit.Value)</th>
+                    <th>@Html.DisplayNameFor(model => model.ItemToEdit.Deployed)</th>
+                    <th>@Html.DisplayNameFor(model => model.ItemToEdit.DeployedDate)</th>
                     <th></th>
                 </tr>
             </thead>
@@ -50,6 +52,8 @@
                     <tr>
                         <td>@Html.DisplayFor(modelItem => item.Key)</td>
                         <td>@Html.DisplayFor(modelItem => item.Value)</td>
+                        <td>@(item.Deployed == true ? "はい" : "いいえ")</td>
+                        <td>@item.DeployedDate?.ToString("yyyy/MM/dd HH:mm")</td>
                         <td>
                             <button type="button" class="btn btn-sm btn-outline-secondary" 
                                     data-bs-toggle="modal" 

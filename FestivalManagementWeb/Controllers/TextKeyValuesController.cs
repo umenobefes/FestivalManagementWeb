@@ -1,9 +1,8 @@
 using FestivalManagementWeb.Models;
+using FestivalManagementWeb.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace FestivalManagementWeb.Controllers
@@ -11,18 +10,16 @@ namespace FestivalManagementWeb.Controllers
     [Authorize]
     public class TextKeyValuesController : Controller
     {
-        private readonly IMongoCollection<TextKeyValue> _textCollection;
+        private readonly ITextKeyValueRepository _textRepository;
 
-        public TextKeyValuesController(IMongoDatabase database)
+        public TextKeyValuesController(ITextKeyValueRepository textRepository)
         {
-            _textCollection = database.GetCollection<TextKeyValue>("TextKeyValues");
+            _textRepository = textRepository;
         }
 
         public async Task<IActionResult> Index(Guid? id)
         {
-            var allItems = await _textCollection.Find(_ => true).ToListAsync();
-            System.Diagnostics.Debug.WriteLine($"Found {allItems.Count} documents in TextKeyValues collection.");
-
+            var allItems = await _textRepository.GetAllAsync();
             var viewModel = new TextKeyValueViewModel
             {
                 AllItems = allItems,
@@ -31,7 +28,7 @@ namespace FestivalManagementWeb.Controllers
 
             if (id != null)
             {
-                var item = await _textCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+                var item = await _textRepository.GetByIdAsync(id.Value);
                 if (item != null)
                 {
                     viewModel.ItemToEdit = item;
@@ -46,60 +43,27 @@ namespace FestivalManagementWeb.Controllers
         public async Task<IActionResult> Upsert([Bind("ItemToEdit")] TextKeyValueViewModel model)
         {
             var textKeyValue = model.ItemToEdit;
-            System.Diagnostics.Debug.WriteLine("Upsert method called.");
-            var existingByKey = await _textCollection.Find(x => x.Key == textKeyValue.Key && x.Id != textKeyValue.Id).FirstOrDefaultAsync();
-            if (existingByKey != null)
+            var existingByKey = await _textRepository.GetByKeyAsync(textKeyValue.Key);
+            if (existingByKey != null && existingByKey.Id != textKeyValue.Id)
             {
                 ModelState.AddModelError("ItemToEdit.Key", "このキーは既に使用されています。");
             }
 
-            if (!ModelState.IsValid)
-            {
-                System.Diagnostics.Debug.WriteLine("ModelState is INVALID.");
-                foreach (var modelState in ModelState.Values)
-                {
-                    foreach (var error in modelState.Errors)
-                    {
-                        System.Diagnostics.Debug.WriteLine(error.ErrorMessage);
-                    }
-                }
-            }
-
             if (ModelState.IsValid)
             {
-                System.Diagnostics.Debug.WriteLine("ModelState is VALID.");
-                try
+                if (textKeyValue.Id == Guid.Empty)
                 {
-                    if (textKeyValue.Id == Guid.Empty)
-                    {
-                        textKeyValue.Id = Guid.NewGuid();
-                        System.Diagnostics.Debug.WriteLine($"Inserting new document with Id: {textKeyValue.Id}");
-                        await _textCollection.InsertOneAsync(textKeyValue);
-                        System.Diagnostics.Debug.WriteLine("Insert operation completed.");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Replacing document with Id: {textKeyValue.Id}");
-                        var result = await _textCollection.ReplaceOneAsync(x => x.Id == textKeyValue.Id, textKeyValue);
-                        System.Diagnostics.Debug.WriteLine($"Replace result: Matched={result.MatchedCount}, Modified={result.ModifiedCount}");
-                    }
+                    textKeyValue.Id = Guid.NewGuid();
+                    await _textRepository.CreateAsync(textKeyValue);
                 }
-                catch (Exception ex)
+                else
                 {
-                    System.Diagnostics.Debug.WriteLine($"DATABASE OPERATION FAILED: {ex.Message}");
-                    // Optionally log the full stack trace:
-                    // System.Diagnostics.Debug.WriteLine(ex.ToString());
-                    ModelState.AddModelError(string.Empty, "データベース操作中にエラーが発生しました。");
-                    // Re-populate the view model for returning to the view
-                    model.AllItems = await _textCollection.Find(_ => true).ToListAsync();
-                    return View("Index", model);
+                    await _textRepository.UpdateAsync(textKeyValue);
                 }
                 return RedirectToAction(nameof(Index));
             }
 
-            // If ModelState is invalid, repopulate the view model and return to the view
-            // If ModelState is invalid, repopulate the AllItems list and return to the view
-            model.AllItems = await _textCollection.Find(_ => true).ToListAsync();
+            model.AllItems = await _textRepository.GetAllAsync();
             return View("Index", model);
         }
 
@@ -107,7 +71,7 @@ namespace FestivalManagementWeb.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(Guid id)
         {
-            await _textCollection.DeleteOneAsync(x => x.Id == id);
+            await _textRepository.DeleteAsync(id);
             return RedirectToAction(nameof(Index));
         }
     }

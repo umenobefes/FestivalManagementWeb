@@ -1,9 +1,9 @@
 using FestivalManagementWeb.Models;
+using FestivalManagementWeb.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
-using MongoDB.Driver;
 using MongoDB.Driver.GridFS;
 using SkiaSharp;
 using System;
@@ -15,19 +15,19 @@ namespace FestivalManagementWeb.Controllers
     [Authorize]
     public class ImageKeyValuesController : Controller
     {
-        private readonly IMongoCollection<ImageKeyValue> _imageCollection;
+        private readonly IImageKeyValueRepository _imageRepository;
         private readonly IGridFSBucket _bucket;
         private const int MaxDimension = 1920;
 
-        public ImageKeyValuesController(IMongoDatabase database, IGridFSBucket bucket)
+        public ImageKeyValuesController(IImageKeyValueRepository imageRepository, IGridFSBucket bucket)
         {
-            _imageCollection = database.GetCollection<ImageKeyValue>("ImageKeyValues");
+            _imageRepository = imageRepository;
             _bucket = bucket;
         }
 
         public async Task<IActionResult> Index(Guid? id)
         {
-            var allItems = await _imageCollection.Find(_ => true).ToListAsync();
+            var allItems = await _imageRepository.GetAllAsync();
             var viewModel = new ImageKeyValueViewModel
             {
                 AllItems = allItems,
@@ -36,7 +36,7 @@ namespace FestivalManagementWeb.Controllers
 
             if (id != null)
             {
-                var item = await _imageCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+                var item = await _imageRepository.GetByIdAsync(id.Value);
                 if (item != null)
                 {
                     viewModel.ItemToEdit = item;
@@ -52,8 +52,8 @@ namespace FestivalManagementWeb.Controllers
         {
             var imageKeyValue = model.ItemToEdit;
 
-            var existingByKey = await _imageCollection.Find(x => x.Key == imageKeyValue.Key && x.Id != imageKeyValue.Id).FirstOrDefaultAsync();
-            if (existingByKey != null)
+            var existingByKey = await _imageRepository.GetByKeyAsync(imageKeyValue.Key);
+            if (existingByKey != null && existingByKey.Id != imageKeyValue.Id)
             {
                 ModelState.AddModelError("ItemToEdit.Key", "このキーは既に使用されています。");
             }
@@ -69,17 +69,15 @@ namespace FestivalManagementWeb.Controllers
 
                 if (model.ImageFile != null && model.ImageFile.Length > 0)
                 {
-                    // If updating, delete the old file from GridFS
                     if (imageKeyValue.Id != Guid.Empty)
                     {
-                        var existingItem = await _imageCollection.Find(x => x.Id == imageKeyValue.Id).FirstOrDefaultAsync();
+                        var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
                         if (existingItem != null && existingItem.GridFSFileId != ObjectId.Empty)
                         {
                             await _bucket.DeleteAsync(existingItem.GridFSFileId);
                         }
                     }
 
-                    // Resize and upload the new image to GridFS
                     using (var memoryStream = new MemoryStream())
                     {
                         await model.ImageFile.CopyToAsync(memoryStream);
@@ -93,22 +91,21 @@ namespace FestivalManagementWeb.Controllers
                 if (imageKeyValue.Id == Guid.Empty)
                 {
                     imageKeyValue.Id = Guid.NewGuid();
-                    await _imageCollection.InsertOneAsync(imageKeyValue);
+                    await _imageRepository.CreateAsync(imageKeyValue);
                 }
                 else
                 {
-                    // If no new file was uploaded, keep the existing GridFS file ID
                     if (newGridFSFileId == null)
                     {
-                        var existingItem = await _imageCollection.Find(x => x.Id == imageKeyValue.Id).FirstOrDefaultAsync();
+                        var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
                         imageKeyValue.GridFSFileId = existingItem?.GridFSFileId ?? ObjectId.Empty;
                     }
-                    await _imageCollection.ReplaceOneAsync(x => x.Id == imageKeyValue.Id, imageKeyValue);
+                    await _imageRepository.UpdateAsync(imageKeyValue);
                 }
                 return RedirectToAction(nameof(Index));
             }
 
-            model.AllItems = await _imageCollection.Find(_ => true).ToListAsync();
+            model.AllItems = await _imageRepository.GetAllAsync();
             return View("Index", model);
         }
 
@@ -116,10 +113,9 @@ namespace FestivalManagementWeb.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var itemToDelete = await _imageCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+            var itemToDelete = await _imageRepository.GetByIdAsync(id);
             if (itemToDelete != null)
             {
-                // Delete from GridFS only if the ID is valid
                 if (itemToDelete.GridFSFileId != ObjectId.Empty)
                 {
                     try
@@ -131,15 +127,14 @@ namespace FestivalManagementWeb.Controllers
                         // Ignore if the file is already missing in GridFS for some reason
                     }
                 }
-                // Always delete the metadata document
-                await _imageCollection.DeleteOneAsync(x => x.Id == id);
+                await _imageRepository.DeleteAsync(id);
             }
             return RedirectToAction(nameof(Index));
         }
 
         public async Task<IActionResult> GetImage(Guid id)
         {
-            var item = await _imageCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+            var item = await _imageRepository.GetByIdAsync(id);
             if (item == null || item.GridFSFileId == ObjectId.Empty)
             {
                 return NotFound();
@@ -148,7 +143,6 @@ namespace FestivalManagementWeb.Controllers
             try
             {
                 var stream = await _bucket.OpenDownloadStreamAsync(item.GridFSFileId);
-                // The resized image is always JPEG
                 return File(stream, "image/jpeg");
             }
             catch (GridFSFileNotFoundException)
@@ -197,4 +191,5 @@ namespace FestivalManagementWeb.Controllers
         }
     }
 }
+
 

@@ -23,6 +23,7 @@
                         <input name="ImageFile" type="file" class="form-control" required />
                         <span asp-validation-for="ImageFile" class="text-danger"></span>
                     </div>
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
@@ -32,3 +33,36 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var modalEl = document.getElementById('imageUpdateModal');
+        if (!modalEl) return;
+
+        modalEl.addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget;
+            if (!button) return;
+            var id = button.getAttribute('data-id');
+            var key = button.getAttribute('data-key');
+
+            var idInput = document.getElementById('modalImageId');
+            var keyInput = document.getElementById('modalImageKey');
+            var keyDisplay = document.getElementById('modalImageKeyDisplay');
+
+            if (idInput) idInput.value = id || '';
+            if (keyInput) keyInput.value = key || '';
+            if (keyDisplay) keyDisplay.textContent = key || '';
+        });
+
+        modalEl.addEventListener('hidden.bs.modal', function () {
+            var fileInput = modalEl.querySelector('input[type="file"]');
+            if (fileInput) fileInput.value = '';
+            var idInput = document.getElementById('modalImageId');
+            var keyInput = document.getElementById('modalImageKey');
+            var keyDisplay = document.getElementById('modalImageKeyDisplay');
+            if (idInput) idInput.value = '';
+            if (keyInput) keyInput.value = '';
+            if (keyDisplay) keyDisplay.textContent = '';
+        });
+    });
+</script>

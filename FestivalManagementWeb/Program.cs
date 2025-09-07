@@ -1,5 +1,6 @@
 using AspNetCore.Identity.MongoDbCore.Models;
 using FestivalManagementWeb.Models;
+using FestivalManagementWeb.Repositories;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using MongoDB.Driver;
@@ -48,6 +49,9 @@ builder.Services.AddScoped<MongoDB.Driver.GridFS.IGridFSBucket>(sp =>
     return new MongoDB.Driver.GridFS.GridFSBucket(database);
 });
 
+
+builder.Services.AddScoped<ITextKeyValueRepository, TextKeyValueRepository>();
+builder.Services.AddScoped<IImageKeyValueRepository, ImageKeyValueRepository>();
 
 builder.Services.AddControllersWithViews();
 
