@@ -3,7 +3,7 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "namePrefix": {
-      "value": "festivalmgmt-staging"
+      "value": "festivalmgmt-production"
     },
     "location": {
       "value": "japaneast"

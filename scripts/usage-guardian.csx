@@ -96,9 +96,9 @@ static async Task RunAsync()
     var cosmosSubscription = OptionalEnv("COSMOS_SUBSCRIPTION_ID") ?? subscriptionId;
     var cosmosDatabase = OptionalEnv("COSMOS_DATABASE_NAME");
     var cosmosCollectionsRaw = OptionalEnv("COSMOS_COLLECTION_NAMES");
-    var cosmosProvisioning = OptionalEnv("COSMOS_PROVISIONING") ?? "RequestUnits";
+    var cosmosProvisioning = OptionalEnv("COSMOS_PROVISIONING") ?? "vCore";
     double cosmosFreeRuLimit = GetOptionalDouble("COSMOS_FREE_RU_LIMIT") ?? 1000;
-    double cosmosFreeStorageGb = GetOptionalDouble("COSMOS_FREE_STORAGE_GB") ?? 25;
+    double cosmosFreeStorageGb = GetOptionalDouble("COSMOS_FREE_STORAGE_GB") ?? 32;
     double cosmosWarnRuPct = GetOptionalDouble("COSMOS_WARN_RU_PCT") ?? warnPct;
     double cosmosStopRuPct = GetOptionalDouble("COSMOS_STOP_RU_PCT") ?? stopPct;
     double cosmosWarnStoragePct = GetOptionalDouble("COSMOS_WARN_STORAGE_PCT") ?? warnPct;
@@ -371,8 +371,11 @@ static async Task<CosmosStatus> CheckCosmosAsync(
     DateTime utcNow)
 {
     var status = new CosmosStatus();
-    var normalizedProvisioning = provisioning?.Trim() ?? "RequestUnits";
-    var accountResourceId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.DocumentDB/databaseAccounts/{accountName}";
+    var normalizedProvisioning = provisioning?.Trim() ?? "vCore";
+    var resourceType = string.Equals(normalizedProvisioning, "vCore", StringComparison.OrdinalIgnoreCase)
+        ? "Microsoft.DocumentDB/mongoClusters"
+        : "Microsoft.DocumentDB/databaseAccounts";
+    var accountResourceId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/{resourceType}/{accountName}";
 
     string token;
     try
@@ -512,7 +515,10 @@ static async Task<CosmosStatus> CheckCosmosAsync(
         status.AddLine("Cosmos throughput check skipped (DatabaseName not set).");
     }
 
-    var storageGb = await GetStorageGbAsync(http, accountResourceId, token, utcNow);
+    var metricNamespace = string.Equals(normalizedProvisioning, "vCore", StringComparison.OrdinalIgnoreCase)
+        ? "microsoft.documentdb/mongoclusters"
+        : "microsoft.documentdb/databaseaccounts";
+    var storageGb = await GetStorageGbAsync(http, accountResourceId, token, utcNow, metricNamespace);
     if (storageGb.HasValue)
     {
         status.StorageGb = storageGb.Value;
@@ -610,12 +616,12 @@ static async Task<IReadOnlyCollection<string>> GetCollectionNamesAsync(HttpClien
     return list;
 }
 
-static async Task<double?> GetStorageGbAsync(HttpClient http, string accountResourceId, string token, DateTime utcNow)
+static async Task<double?> GetStorageGbAsync(HttpClient http, string accountResourceId, string token, DateTime utcNow, string metricNamespace)
 {
     var start = utcNow.AddHours(-6).ToString("O");
     var end = utcNow.ToString("O");
     var timespan = Uri.EscapeDataString($"{start}/{end}");
-    var requestUri = $"{ManagementEndpoint}{accountResourceId}/providers/microsoft.insights/metrics?metricnames=TotalAccountStorage&aggregation=Maximum&timespan={timespan}&interval=PT1H&metricnamespace=microsoft.documentdb/databaseaccounts&api-version={MetricsApiVersion}";
+    var requestUri = $"{ManagementEndpoint}{accountResourceId}/providers/microsoft.insights/metrics?metricnames=TotalAccountStorage&aggregation=Maximum&timespan={timespan}&interval=PT1H&metricnamespace={Uri.EscapeDataString(metricNamespace)}&api-version={MetricsApiVersion}";
 
     using var doc = await GetJsonAsync(http, requestUri, token);
     if (doc == null)

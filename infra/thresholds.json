@@ -1,0 +1,19 @@
+{
+  "budgets": {
+    "vcpuSeconds": 180000,
+    "gibSeconds": 360000,
+    "requests": 2000000,
+    "dataGb": 100
+  },
+  "thresholds": {
+    "warnPercent": 95,
+    "stopPercent": 100,
+    "remainStopPercent": null,
+    "remainWarnPercent": null
+  },
+  "cosmos": {
+    "freeStorageGb": 32,
+    "warnStoragePercent": 95,
+    "stopStoragePercent": 100
+  }
+}

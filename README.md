@@ -56,7 +56,16 @@ az ad sp create-for-rbac \
 
 ### 2. デプロイ実行
 
-**mainブランチにプッシュ** または **GitHub Actions手動実行** で自動デプロイ開始
+#### **自動デプロイ**
+- **mainブランチにプッシュ** - stagingに自動デプロイ（`festivalmgmt-staging`）
+
+#### **手動デプロイ（カスタマイズ可能）**
+- **GitHub Actions手動実行** で以下を指定可能：
+  - **Environment**: staging / production
+  - **Name Prefix**: リソース名のプレフィックス（例: `myapp`, `test`）
+
+**リソース命名例:**
+- プレフィックス `myapp` + 環境 `staging` = `myapp-staging-app`
 
 ## Free Tier Remaining Time Banner
 

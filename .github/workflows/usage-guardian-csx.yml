@@ -17,33 +17,43 @@ env:
   SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
   TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
   CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-  RESOURCE_GROUP: ${{ vars.CA_RESOURCE_GROUP }}
-  APP_NAME: ${{ vars.CA_APP_NAME }}
-  BUDGET_VCPU_SECONDS: 180000
-  BUDGET_GIB_SECONDS: 360000
-  BUDGET_REQUESTS: 2000000
-  BUDGET_DATA_GB: 100
-  WARN_PCT: 95
-  STOP_PCT: 100
-  REMAIN_STOP_PCT: ""
-  REMAIN_WARN_PCT: ""
-    COSMOS_ACCOUNT_NAME: ${{ vars.COSMOS_ACCOUNT_NAME }}
-  COSMOS_RESOURCE_GROUP: ${{ vars.COSMOS_RESOURCE_GROUP }}
-  COSMOS_SUBSCRIPTION_ID: ${{ vars.COSMOS_SUBSCRIPTION_ID }}
-  COSMOS_DATABASE_NAME: ${{ vars.COSMOS_DATABASE_NAME }}
-  COSMOS_COLLECTION_NAMES: ${{ vars.COSMOS_COLLECTION_NAMES }}
-  COSMOS_PROVISIONING: ${{ vars.COSMOS_PROVISIONING }}
-  COSMOS_FREE_RU_LIMIT: 1000
-  COSMOS_FREE_STORAGE_GB: 25
-  COSMOS_WARN_RU_PCT: 95
-  COSMOS_STOP_RU_PCT: 100
-  COSMOS_WARN_STORAGE_PCT: 95
-  COSMOS_STOP_STORAGE_PCT: 100
-\njobs:
+
+jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract parameters and thresholds
+        id: extract-params
+        run: |
+          NAME_PREFIX=$(jq -r '.parameters.namePrefix.value' infra/parameters.json)
+          ENVIRONMENT=$(echo "$NAME_PREFIX" | sed 's/.*-//')
+          echo "BASE_NAME_PREFIX=$NAME_PREFIX" >> $GITHUB_ENV
+          echo "RESOURCE_GROUP=rg-$NAME_PREFIX" >> $GITHUB_ENV
+          echo "APP_NAME=${NAME_PREFIX}-app" >> $GITHUB_ENV
+          echo "ENVIRONMENT=$ENVIRONMENT" >> $GITHUB_ENV
+
+          # Extract threshold values from thresholds.json
+          echo "BUDGET_VCPU_SECONDS=$(jq -r '.budgets.vcpuSeconds' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "BUDGET_GIB_SECONDS=$(jq -r '.budgets.gibSeconds' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "BUDGET_REQUESTS=$(jq -r '.budgets.requests' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "BUDGET_DATA_GB=$(jq -r '.budgets.dataGb' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "WARN_PCT=$(jq -r '.thresholds.warnPercent' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "STOP_PCT=$(jq -r '.thresholds.stopPercent' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "REMAIN_STOP_PCT=$(jq -r '.thresholds.remainStopPercent // ""' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "REMAIN_WARN_PCT=$(jq -r '.thresholds.remainWarnPercent // ""' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "COSMOS_FREE_STORAGE_GB=$(jq -r '.cosmos.freeStorageGb' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "COSMOS_WARN_STORAGE_PCT=$(jq -r '.cosmos.warnStoragePercent' infra/thresholds.json)" >> $GITHUB_ENV
+          echo "COSMOS_STOP_STORAGE_PCT=$(jq -r '.cosmos.stopStoragePercent' infra/thresholds.json)" >> $GITHUB_ENV
+
+          # Predict Cosmos DB account name from Bicep pattern
+          echo "COSMOS_ACCOUNT_NAME=${NAME_PREFIX}-cosmos" >> $GITHUB_ENV
+          echo "COSMOS_RESOURCE_GROUP=${RESOURCE_GROUP}" >> $GITHUB_ENV
+          echo "COSMOS_SUBSCRIPTION_ID=${SUBSCRIPTION_ID}" >> $GITHUB_ENV
+          echo "COSMOS_DATABASE_NAME=FestivalManagement" >> $GITHUB_ENV
+          echo "COSMOS_COLLECTION_NAMES=TextKeyValues,ImageKeyValues" >> $GITHUB_ENV
+          echo "COSMOS_PROVISIONING=vCore" >> $GITHUB_ENV
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2

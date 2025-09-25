@@ -5,19 +5,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'staging'
-        type: choice
-        options:
-          - staging
-          - production
-
-env:
-  AZURE_RESOURCE_GROUP: rg-festivalmgmt
-  NAME_PREFIX: festivalmgmt
 
 jobs:
   build-and-deploy:
@@ -26,15 +13,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Set environment variables
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
-        else
-          echo "ENVIRONMENT=staging" >> $GITHUB_ENV
-        fi
-        echo "NAME_PREFIX=${{ env.NAME_PREFIX }}-${{ env.ENVIRONMENT }}" >> $GITHUB_ENV
 
     - name: Login to Azure
       uses: azure/login@v1
@@ -46,11 +24,20 @@ jobs:
         SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
         echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
 
+    - name: Extract parameters for resource group creation
+      id: extract-params
+      run: |
+        NAME_PREFIX=$(jq -r '.parameters.namePrefix.value' infra/parameters.json)
+        LOCATION=$(jq -r '.parameters.location.value' infra/parameters.json)
+        echo "name-prefix=$NAME_PREFIX" >> $GITHUB_OUTPUT
+        echo "location=$LOCATION" >> $GITHUB_OUTPUT
+        echo "resource-group=rg-${NAME_PREFIX}" >> $GITHUB_OUTPUT
+
     - name: Create Resource Group
       run: |
         az group create \
-          --name ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }} \
-          --location japaneast
+          --name ${{ steps.extract-params.outputs.resource-group }} \
+          --location ${{ steps.extract-params.outputs.location }}
 
     - name: Create secrets JSON from app secrets
       run: |
@@ -61,17 +48,13 @@ jobs:
       id: deploy-infra
       with:
         subscriptionId: ${{ env.SUBSCRIPTION_ID }}
-        resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }}
+        resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
         template: infra/main.bicep
-        parameters: |
-          namePrefix=${{ env.NAME_PREFIX }}
-          googleClientId=${{ secrets.GOOGLE_CLIENT_ID }}
-          googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }}
-          initialUserEmail=${{ secrets.INITIAL_USER_EMAIL }}
+        parameters: infra/parameters.json
 
     - name: Build Docker image
       run: |
-        docker build -f FestivalManagementWeb/Dockerfile -t ${{ env.NAME_PREFIX }}-app:${{ github.sha }} .
+        docker build -f FestivalManagementWeb/Dockerfile -t ${{ steps.extract-params.outputs.name-prefix }}-app:${{ github.sha }} .
 
     - name: Get ACR credentials and login
       run: |
@@ -80,28 +63,19 @@ jobs:
 
     - name: Push Docker image
       run: |
-        docker tag ${{ env.NAME_PREFIX }}-app:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:${{ github.sha }}
-        docker tag ${{ env.NAME_PREFIX }}-app:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:latest
-        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:${{ github.sha }}
-        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:latest
+        IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
+        docker tag $IMAGE_NAME:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:${{ github.sha }}
+        docker tag $IMAGE_NAME:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:latest
+        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:${{ github.sha }}
+        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:latest
 
     - name: Update Container App
       run: |
+        IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
         az containerapp update \
-          --name ${{ env.NAME_PREFIX }}-app \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }} \
-          --image ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:${{ github.sha }}
-
-    - name: Set Git settings from secrets
-      run: |
-        az containerapp update \
-          --name ${{ env.NAME_PREFIX }}-app \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }} \
-          --set-env-vars \
-            "GitSettings__AuthorName=${{ secrets.GIT_AUTHOR_NAME }}" \
-            "GitSettings__AuthorEmail=${{ secrets.GIT_AUTHOR_EMAIL }}" \
-            "GitSettings__Token=${{ secrets.GIT_TOKEN }}" \
-            "GitSettings__CloneUrl=${{ secrets.GIT_CLONE_URL }}"
+          --name $IMAGE_NAME \
+          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
+          --image ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:${{ github.sha }}
 
     - name: Output application URL
       run: |

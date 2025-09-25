@@ -34,6 +34,7 @@ var gitAuthorName = secrets.gitSettings.authorName
 var gitAuthorEmail = secrets.gitSettings.authorEmail
 var gitToken = secrets.gitSettings.token
 var gitCloneUrl = secrets.gitSettings.cloneUrl
+var mongoAdminPassword = secrets.mongoAdminPassword
 
 // Log Analytics Workspace
 resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
@@ -75,39 +76,38 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' =
   }
 }
 
-// Cosmos DB Account (MongoDB API)
-resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
+// Cosmos DB for MongoDB (vCore) - Free Tier
+resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2025-04-01-preview' = {
   name: cosmosDbAccountName
   location: location
-  kind: 'MongoDB'
   properties: {
-    consistencyPolicy: {
-      defaultConsistencyLevel: 'Session'
+    administrator: {
+      userName: 'mongoAdmin'
+      password: secrets.mongoAdminPassword
     }
-    locations: [
-      {
-        locationName: location
-        failoverPriority: 0
-        isZoneRedundant: false
-      }
-    ]
-    databaseAccountOfferType: 'Standard'
-    enableFreeTier: true
-    apiProperties: {
-      serverVersion: '4.2'
+    compute: {
+      tier: 'Free'
+    }
+    storage: {
+      sizeGb: 32
+    }
+    serverVersion: '6.0'
+    highAvailability: {
+      targetMode: 'Disabled'
+    }
+    backup: {
+      earliestRestoreTime: null
     }
   }
 }
 
-// Cosmos DB Database
-resource cosmosDatabase 'Microsoft.DocumentDB/databaseAccounts/mongodbDatabases@2023-04-15' = {
-  parent: cosmosDbAccount
-  name: 'FestivalManagement'
+// Firewall rule to allow Azure services
+resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRules@2025-04-01-preview' = {
+  parent: cosmosMongoCluster
+  name: 'AllowAllAzureServices'
   properties: {
-    resource: {
-      id: 'FestivalManagement'
-    }
-    options: {}
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
   }
 }
 
@@ -120,8 +120,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
     configuration: {
       secrets: [
         {
-          name: 'cosmosdb-connection-string'
-          value: cosmosDbAccount.listConnectionStrings().connectionStrings[0].connectionString
+          name: 'mongo-connection-string'
+          value: cosmosMongoCluster.listConnectionStrings().connectionStrings[0].connectionString
         }
         {
           name: 'google-client-id'
@@ -167,7 +167,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
             {
               name: 'MongoDbSettings__ConnectionString'
-              secretRef: 'cosmosdb-connection-string'
+              secretRef: 'mongo-connection-string'
             }
             {
               name: 'MongoDbSettings__DatabaseName'
@@ -255,7 +255,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
             {
               name: 'FreeTier__Cosmos__AccountResourceId'
-              value: cosmosDbAccount.id
+              value: cosmosMongoCluster.id
             }
             {
               name: 'FreeTier__EnforceRequestDailyCap'
@@ -271,15 +271,11 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
             {
               name: 'FreeTier__Cosmos__Provisioning'
-              value: 'RequestUnits'
-            }
-            {
-              name: 'FreeTier__Cosmos__FreeTierRuLimit'
-              value: '1000'
+              value: 'vCore'
             }
             {
               name: 'FreeTier__Cosmos__FreeTierStorageGb'
-              value: '25'
+              value: '32'
             }
             {
               name: 'FreeTier__Cosmos__FreeTierVCoreStorageGb'
@@ -356,6 +352,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
 
 // Outputs
 output containerAppUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
-output cosmosDbConnectionString string = cosmosDbAccount.listConnectionStrings().connectionStrings[0].connectionString
+output mongoConnectionString string = cosmosMongoCluster.listConnectionStrings().connectionStrings[0].connectionString
+output cosmosMongoClusterName string = cosmosMongoCluster.name
 output containerRegistryLoginServer string = containerRegistry.properties.loginServer
 output containerRegistryName string = containerRegistry.name
