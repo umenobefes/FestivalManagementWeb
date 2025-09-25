@@ -52,21 +52,9 @@ jobs:
           --name ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }} \
           --location japaneast
 
-    - name: Create secrets JSON from GitHub secrets
+    - name: Create secrets JSON from app secrets
       run: |
-        cat > infra/secrets.json << EOF
-        {
-          "googleClientId": "${{ secrets.GOOGLE_CLIENT_ID }}",
-          "googleClientSecret": "${{ secrets.GOOGLE_CLIENT_SECRET }}",
-          "initialUserEmail": "${{ secrets.INITIAL_USER_EMAIL }}",
-          "gitSettings": {
-            "authorName": "${{ secrets.GIT_AUTHOR_NAME }}",
-            "authorEmail": "${{ secrets.GIT_AUTHOR_EMAIL }}",
-            "token": "${{ secrets.GIT_TOKEN }}",
-            "cloneUrl": "${{ secrets.GIT_CLONE_URL }}"
-          }
-        }
-        EOF
+        echo '${{ secrets.APP_SECRETS }}' > infra/secrets.json
 
     - name: Deploy Bicep template
       uses: azure/arm-deploy@v1

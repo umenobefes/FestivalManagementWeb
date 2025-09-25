@@ -14,9 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+  TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+  CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
   RESOURCE_GROUP: ${{ vars.CA_RESOURCE_GROUP }}
   APP_NAME: ${{ vars.CA_APP_NAME }}
   BUDGET_VCPU_SECONDS: 180000

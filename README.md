@@ -1,5 +1,63 @@
 # FestivalManagementWeb
 
+ASP.NET Core 8.0で構築されたフェスティバル管理Webアプリケーションです。Azure Container AppsとCosmos DB（MongoDB API）を使用してクラウドにデプロイされます。
+
+## 🚀 主な機能
+
+- **キー・バリュー管理**: テキストと画像のキー・バリューストレージ
+- **ユーザー認証**: Google OAuth 2.0認証とASP.NET Identity
+- **Git統合**: デプロイ履歴の追跡とリポジトリ連携
+- **Azure監視**: Container AppsとCosmos DBの使用量監視
+- **無料枠管理**: Azureの無料枠使用量を監視・制御
+
+## 🏗️ 技術スタック
+
+- **Backend**: ASP.NET Core 8.0 MVC
+- **Database**: Azure Cosmos DB (MongoDB API)
+- **Authentication**: ASP.NET Identity + Google OAuth
+- **Infrastructure**: Azure Container Apps, Azure Container Registry
+- **Monitoring**: Application Insights, Log Analytics
+- **Deployment**: GitHub Actions + Bicep IaC
+
+## 📦 簡単デプロイ（推奨）
+
+### 1. GitHub Secrets設定
+
+以下の **2つのSecrets** を設定：
+
+#### Azure認証
+```bash
+# Service Principal作成
+az ad sp create-for-rbac \
+  --name "festival-mgmt-sp" \
+  --role contributor \
+  --scopes /subscriptions/{your-subscription-id} \
+  --sdk-auth
+```
+- `AZURE_CREDENTIALS` - 上記コマンドの出力JSON全体
+
+#### アプリケーション設定
+- `APP_SECRETS` - アプリケーション設定情報（JSON形式）
+
+**APP_SECRETSの内容例:**
+```json
+{
+  "googleClientId": "your-google-client-id",
+  "googleClientSecret": "your-google-client-secret",
+  "initialUserEmail": "admin@example.com",
+  "gitSettings": {
+    "authorName": "Your Name",
+    "authorEmail": "you@example.com",
+    "token": "github_pat_xxx",
+    "cloneUrl": "https://github.com/user/repo.git"
+  }
+}
+```
+
+### 2. デプロイ実行
+
+**mainブランチにプッシュ** または **GitHub Actions手動実行** で自動デプロイ開始
+
 ## Free Tier Remaining Time Banner
 
 This app can display a banner on every page with the estimated remaining free-tier hours per day for Azure Container Apps (consumption plan).
@@ -58,38 +116,61 @@ Notes:
 - See `UsageGuardianFunction/` for an Azure Functions app that checks usage every 30 minutes and freezes your Container App (min/max replicas = 0) when projected to exceed the monthly free tier.
 - Enable with Managed Identity + roles: Container App Contributor, Monitoring Reader, Cost Management Reader.
 
-## Deploy workflow
+## 🔧 新しいBicepベースのデプロイ
 
-- Workflow: `.github/workflows/deploy-container-app.yml`
-- Builds & deploys the web app container, ensures the Container Apps extension is available, and reapplies external ingress (port 8080) plus scaling defaults.
-- By default it sets `minReplicas=0` and `cooldownPeriod=600` seconds so the app scales to zero when HTTP traffic is absent for ~10 minutes.
-- Sets container resources to `0.5 vCPU / 1 GiB` to match the consumption plan free-tier friendly profile.
-- Ensures the Container Apps environment exists (creates when missing; set `CA_ENVIRONMENT_LOCATION` for new environments).
-- Optional Cosmos DB provisioning (auto-created if missing when variables are set):
-  - `COSMOS_ACCOUNT_NAME` (lowercase; required to enable the step)
-  - `COSMOS_LOCATION` (Azure region for the account, e.g. `japaneast`)
-  - `COSMOS_RESOURCE_GROUP` (defaults to `AZURE_RESOURCE_GROUP` when omitted)
-  - `COSMOS_SUBSCRIPTION_ID` (defaults to `AZURE_SUBSCRIPTION_ID`)
-  - `COSMOS_DATABASE_NAME` (defaults to `FestivalDb`)
-  - `COSMOS_COLLECTION_NAMES` (comma separated; defaults to `TextKeyValues,ImageKeyValues`)
-  - `COSMOS_PROVISIONING` (`RequestUnits` or `Autoscale`, default `RequestUnits`)
-  - `COSMOS_DATABASE_RU` (default `400`; use `4000` when autoscale)
-  - `COSMOS_COLLECTION_RU` (optional per-collection RU; leave blank to share database throughput)
-  - `COSMOS_ENABLE_FREE_TIER` (`true` to request the subscription's free-tier benefit)
-- Supply the `MongoDbSettings__ConnectionString` setting (or equivalent) to the Container App via environment variables/secrets so the app can connect to Cosmos DB.
-- To adjust the idle window, create a repository variable `CA_IDLE_COOLDOWN_SECONDS` (seconds). Leaving it empty keeps the 10-minute stop.
+**推奨デプロイ方法** - Bicepテンプレートで完全自動化
 
-## GitHub Actions Guardian (free)
+### デプロイの流れ
+1. **GitHub Actions** (`.github/workflows/deploy.yml`) - 統合ワークフロー
+2. **Bicepテンプレート** で Azure リソース作成 (`infra/main.bicep`)
+3. **Docker イメージ** ビルド・プッシュ
+4. **Container App** デプロイ・環境変数設定
 
-- Workflow: `.github/workflows/usage-guardian.yml`
-- Schedules every 30 minutes. Reads metrics (Requests/TxBytes) + cost (vCPU/GiB-seconds) for the same Container App and freezes it when thresholds are met.
-- Configure via repo Secrets/Variables and env:
-  - Required:
-    - Secrets: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`
-    - Variables: `CA_RESOURCE_GROUP`, `CA_APP_NAME`
-  - Budgets/thresholds (env in workflow):
-    - `BUDGET_VCPU_SECONDS`, `BUDGET_GIB_SECONDS`, `BUDGET_REQUESTS`, `BUDGET_DATA_GB`
-    - Projected-used thresholds: `WARN_PCT` (default 95), `STOP_PCT` (default 100)
-    - Actual cost guard: `STOP_ON_ACTUAL_COST` (default `true`), `COST_STOP_THRESHOLD` (default `0`, stop once cost > threshold), `COST_WARN_THRESHOLD` (optional warn threshold)
-    - Remaining-budget thresholds (stop when remaining <= pct): `REMAIN_WARN_PCT`, `REMAIN_STOP_PCT`
-  - Optional: `DISABLE_INGRESS_ON_STOP=true` to close external ingress when freezing
+### 自動作成されるリソース
+- Azure Container Apps環境
+- Azure Container Registry
+- Azure Cosmos DB (MongoDB API、無料枠有効)
+- Application Insights
+- Log Analytics Workspace
+- 必要な環境変数・監視設定
+
+### 無料枠最適化
+- Container Apps: 0.25 vCPU, 0.5Gi メモリ
+- Cosmos DB: 無料枠有効（1000 RU/s, 25GB）
+- 自動スケールゼロ（アイドル時）
+
+## 🔧 ローカル開発環境
+
+### 必要な設定
+
+1. **appsettings.Development.json**を作成:
+```json
+{
+  "MongoDbSettings": {
+    "ConnectionString": "your-cosmos-connection-string",
+    "DatabaseName": "festival-test"
+  },
+  "Authentication": {
+    "Google": {
+      "ClientId": "your-google-client-id",
+      "ClientSecret": "your-google-client-secret"
+    }
+  },
+  "InitialUser": {
+    "Email": "your-email@example.com"
+  }
+}
+```
+
+2. **アプリケーション起動**:
+```bash
+dotnet run --project FestivalManagementWeb
+```
+
+## 📊 使用量監視（オプション）
+
+### Usage Guardian CSX
+- **Workflow**: `.github/workflows/usage-guardian-csx.yml`
+- **機能**: 30分ごとにAzure使用量をチェックし、予算超過時にContainer Appを停止
+- **設定**: Azure認証は `AZURE_CREDENTIALS` から自動取得
+- **しきい値**: 無料枠予算（vCPU、メモリ、リクエスト数、データ転送量）に基づく自動制御
