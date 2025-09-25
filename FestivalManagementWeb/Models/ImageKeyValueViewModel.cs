@@ -7,7 +7,9 @@ namespace FestivalManagementWeb.Models
     {
         public IEnumerable<ImageKeyValue> AllItems { get; set; } = new List<ImageKeyValue>();
         public ImageKeyValue ItemToEdit { get; set; } = new ImageKeyValue();
+        public int SelectedYear { get; set; }
         public IFormFile? ImageFile { get; set; }
     }
 }
+
 

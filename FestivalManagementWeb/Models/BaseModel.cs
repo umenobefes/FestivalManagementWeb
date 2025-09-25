@@ -8,5 +8,9 @@ namespace FestivalManagementWeb.Models
     {
         [BsonId]
         public Guid Id { get; set; }
+        [BsonElement("year")]
+        [Display(Name = "年度")]
+        public int Year { get; set; } = DateTime.UtcNow.Year;
     }
 }
+

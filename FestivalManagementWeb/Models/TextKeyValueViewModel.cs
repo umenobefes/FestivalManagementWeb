@@ -6,5 +6,7 @@ namespace FestivalManagementWeb.Models
     {
         public IEnumerable<TextKeyValue> AllItems { get; set; } = new List<TextKeyValue>();
         public TextKeyValue ItemToEdit { get; set; } = new TextKeyValue();
+        public int SelectedYear { get; set; }
     }
 }
+

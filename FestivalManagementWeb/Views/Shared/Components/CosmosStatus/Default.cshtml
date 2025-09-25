@@ -1,0 +1,45 @@
+@using System.Linq
+@model FestivalManagementWeb.Models.CosmosFreeTierStatus
+@if (Model != null)
+{
+    var withinFree = Model.OverallWithinFreeTier != false && Model.FreeTierActive != false;
+    var showWarning = Model.ShouldWarn || !withinFree;
+    var css = Model.ShouldStop ? "badge rounded-pill bg-danger" : (showWarning ? "badge rounded-pill bg-warning text-dark" : "badge rounded-pill bg-success");
+    var status = Model.ShouldStop ? "–³—¿˜g’´‰ß" : (showWarning ? "–³—¿˜g’ˆÓ" : "–³—¿˜g“à");
+    var freeTierSetting = Model.FreeTierActive == true ? "–³—¿˜g—LŒø" : (Model.FreeTierActive == false ? "–³—¿˜g–³Œø" : "–³—¿˜g•s–¾");
+    var cosmosLabel = Model.Provisioning == FestivalManagementWeb.Models.CosmosProvisioningModel.VCore ? "Cosmos vCore" : "Cosmos";
+    var capacityUrl = Url.Action("CapacityLimit", "FreeTier");
+    string BuildMetric(string label, double? usedPercent)
+    {
+        if (!usedPercent.HasValue)
+        {
+            return string.Empty;
+        }
+        return $"{label} {usedPercent.Value:F0}%";
+    }
+    var ruMetric = BuildMetric("RU", Model.RuPercentOfLimit);
+    var storageMetric = BuildMetric("Storage", Model.StoragePercentOfLimit);
+    var metrics = string.Join(" / ", new[] { ruMetric, storageMetric }.Where(m => !string.IsNullOrEmpty(m)));
+    if (string.IsNullOrEmpty(metrics))
+    {
+        metrics = "‘ª’è’†";
+    }
+    if (Model.ShouldStop)
+    {
+        <a class="d-flex align-items-center gap-2 cosmos-status-pill text-decoration-none" title="@($"{status} / {freeTierSetting} - {metrics}")" href="@capacityUrl">
+            <span class="fw-semibold">@cosmosLabel</span>
+            <span class="@css">@status</span>
+            <span class="text-muted small">@metrics</span>
+        </a>
+    }
+    else
+    {
+        <div class="d-flex align-items-center gap-2 cosmos-status-pill" title="@($"{status} / {freeTierSetting} - {metrics}")">
+            <span class="fw-semibold">@cosmosLabel</span>
+            <span class="@css">@status</span>
+            <span class="text-muted small">@metrics</span>
+        </div>
+    }
+}
+
+

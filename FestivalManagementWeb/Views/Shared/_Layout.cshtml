@@ -1,4 +1,4 @@
-Ôªø<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="utf-8" />
@@ -10,6 +10,7 @@
 </head>
 <body>
     <header>
+        @await Component.InvokeAsync("FreeTierBanner")
         <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
             <div class="container-fluid">
                 <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">FestivalManagementWeb</a>
@@ -20,22 +21,23 @@
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
+                            <a class="nav-link text-dark" asp-area="" asp-controller="TextKeyValues" asp-action="Index">ÉeÉLÉXÉgÉfÅ[É^</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+                            <a class="nav-link text-dark" asp-area="" asp-controller="ImageKeyValues" asp-action="Index">âÊëúÉfÅ[É^</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="TextKeyValues" asp-action="Index">„ÉÜ„Ç≠„Çπ„Éà„Éá„Éº„Çø</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="ImageKeyValues" asp-action="Index">ÁîªÂÉè„Éá„Éº„Çø</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Users" asp-action="Index">„É¶„Éº„Ç∂„ÉºÁÆ°ÁêÜ</a>
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Users" asp-action="Index">ÉÜÅ[ÉUÅ[ä«óù</a>
                         </li>
                     </ul>
-                    <partial name="_LoginPartial" />
+                    <div class="d-flex align-items-center gap-3">
+                        @if (User.Identity?.IsAuthenticated == true)
+                        {
+                            @await Component.InvokeAsync("YearBranchSwitcher")
+                        }
+                        @await Component.InvokeAsync("CosmosStatus")
+                        <partial name="_LoginPartial" />
+                    </div>
                 </div>
             </div>
         </nav>
@@ -61,3 +63,6 @@
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
+
+
+

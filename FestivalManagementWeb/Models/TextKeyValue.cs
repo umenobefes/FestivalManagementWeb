@@ -13,7 +13,7 @@ namespace FestivalManagementWeb.Models
         public string Value { get; set; } = string.Empty;
         [Display(Name = "デプロイ済み")]
         public bool? Deployed { get; set; } = false;
-        [Display(Name = "更新日時")]
+        [Display(Name = "デプロイ日時")]
         public DateTime? DeployedDate { get; set; } = null;
     }
 }

@@ -1,4 +1,4 @@
-html {
+﻿html {
   font-size: 14px;
 }
 
@@ -19,4 +19,78 @@ html {
 
 body {
   margin-bottom: 60px;
+}
+/* Free tier usage banner */
+.free-tier-banner {
+  border-radius: 0;
+  background: linear-gradient(135deg, rgba(222, 248, 255, 0.92), rgba(198, 236, 255, 0.92));
+  border: 1px solid rgba(13, 110, 253, 0.35);
+}
+
+.free-tier-banner .metric-card {
+  background-color: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(13, 110, 253, 0.2);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  height: 100%;
+  box-shadow: 0 0.25rem 1rem rgba(13, 110, 253, 0.12);
+}
+
+.free-tier-banner .metric-title {
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #0f4c75;
+  margin-bottom: 0.25rem;
+}
+
+.free-tier-banner .metric-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.free-tier-banner .metric-label {
+  font-weight: 600;
+  color: #13406a;
+}
+
+.free-tier-banner .metric-value {
+  font-weight: 600;
+  text-align: right;
+}
+
+.free-tier-banner .metric-value strong {
+  font-size: 1rem;
+}
+
+.free-tier-banner .metric-subline {
+  font-size: 0.8rem;
+  color: rgba(17, 58, 82, 0.75);
+  margin: 0;
+}
+
+.free-tier-banner .metric-footnote {
+  margin-top: auto;
+  font-size: 0.78rem;
+  color: rgba(17, 58, 82, 0.65);
+}
+
+
+/* Cosmos status pill */
+.cosmos-status-pill {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.navbar .cosmos-status-pill {
+  color: inherit;
+  gap: 0.5rem;
+  white-space: nowrap;
 }

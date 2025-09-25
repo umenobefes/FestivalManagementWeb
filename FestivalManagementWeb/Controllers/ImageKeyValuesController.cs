@@ -1,5 +1,7 @@
 using FestivalManagementWeb.Models;
 using FestivalManagementWeb.Repositories;
+using FestivalManagementWeb.Filters;
+using FestivalManagementWeb.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -17,50 +19,67 @@ namespace FestivalManagementWeb.Controllers
     {
         private readonly IImageKeyValueRepository _imageRepository;
         private readonly IGridFSBucket _bucket;
+        private readonly IYearBranchService _yearBranchService;
         private const int MaxDimension = 1920;
 
-        public ImageKeyValuesController(IImageKeyValueRepository imageRepository, IGridFSBucket bucket)
+        public ImageKeyValuesController(IImageKeyValueRepository imageRepository, IGridFSBucket bucket, IYearBranchService yearBranchService)
         {
             _imageRepository = imageRepository;
             _bucket = bucket;
+            _yearBranchService = yearBranchService;
         }
 
         public async Task<IActionResult> Index(Guid? id)
         {
-            var allItems = await _imageRepository.GetAllAsync();
+            var selectedYear = await _yearBranchService.GetCurrentYearAsync();
+            var allItems = await _imageRepository.GetAllAsync(selectedYear);
             var viewModel = new ImageKeyValueViewModel
             {
                 AllItems = allItems,
-                ItemToEdit = new ImageKeyValue()
+                ItemToEdit = new ImageKeyValue { Year = selectedYear },
+                SelectedYear = selectedYear
             };
 
-            if (id != null)
+            if (id.HasValue)
             {
                 var item = await _imageRepository.GetByIdAsync(id.Value);
-                if (item != null)
+                if (item != null && item.Year == selectedYear)
                 {
                     viewModel.ItemToEdit = item;
                 }
             }
 
+            ViewData["SelectedYear"] = selectedYear;
             return View(viewModel);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [CosmosCapacityGuard]
         public async Task<IActionResult> Upsert(ImageKeyValueViewModel model)
         {
+            var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var imageKeyValue = model.ItemToEdit;
+            imageKeyValue.Year = selectedYear;
 
-            var existingByKey = await _imageRepository.GetByKeyAsync(imageKeyValue.Key);
+            if (imageKeyValue.Id != Guid.Empty)
+            {
+                var existingById = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
+                if (existingById == null || existingById.Year != selectedYear)
+                {
+                    ModelState.AddModelError(string.Empty, "The requested item is not available for the current year.");
+                }
+            }
+
+            var existingByKey = await _imageRepository.GetByKeyAsync(imageKeyValue.Key, selectedYear);
             if (existingByKey != null && existingByKey.Id != imageKeyValue.Id)
             {
-                ModelState.AddModelError("ItemToEdit.Key", "このキーは既に使用されています。");
+                ModelState.AddModelError("ItemToEdit.Key", "The provided key already exists for the selected year.");
             }
 
             if (model.ImageFile == null && imageKeyValue.Id == Guid.Empty)
             {
-                ModelState.AddModelError("ImageFile", "画像をアップロードしてください。");
+                ModelState.AddModelError("ImageFile", "Please upload an image file.");
             }
 
             if (ModelState.IsValid)
@@ -82,8 +101,8 @@ namespace FestivalManagementWeb.Controllers
                     {
                         await model.ImageFile.CopyToAsync(memoryStream);
                         var imageBytes = ResizeImage(memoryStream.ToArray());
-                        
-                        newGridFSFileId = await _bucket.UploadFromBytesAsync(model.ImageFile.FileName, imageBytes);
+                        var guidFileName = $"{Guid.NewGuid():N}.png";
+                        newGridFSFileId = await _bucket.UploadFromBytesAsync(guidFileName, imageBytes);
                         imageKeyValue.GridFSFileId = newGridFSFileId.Value;
                     }
                 }
@@ -105,7 +124,9 @@ namespace FestivalManagementWeb.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            model.AllItems = await _imageRepository.GetAllAsync();
+            model.AllItems = await _imageRepository.GetAllAsync(selectedYear);
+            model.SelectedYear = selectedYear;
+            ViewData["SelectedYear"] = selectedYear;
             return View("Index", model);
         }
 
@@ -113,8 +134,9 @@ namespace FestivalManagementWeb.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(Guid id)
         {
+            var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var itemToDelete = await _imageRepository.GetByIdAsync(id);
-            if (itemToDelete != null)
+            if (itemToDelete != null && itemToDelete.Year == selectedYear)
             {
                 if (itemToDelete.GridFSFileId != ObjectId.Empty)
                 {
@@ -129,6 +151,10 @@ namespace FestivalManagementWeb.Controllers
                 }
                 await _imageRepository.DeleteAsync(id);
             }
+            else
+            {
+                TempData["Error"] = "Unable to delete the requested item.";
+            }
             return RedirectToAction(nameof(Index));
         }
 
@@ -140,10 +166,16 @@ namespace FestivalManagementWeb.Controllers
                 return NotFound();
             }
 
+            var selectedYear = await _yearBranchService.GetCurrentYearAsync();
+            if (item.Year != selectedYear)
+            {
+                return Forbid();
+            }
+
             try
             {
                 var stream = await _bucket.OpenDownloadStreamAsync(item.GridFSFileId);
-                return File(stream, "image/jpeg");
+                return File(stream, "image/png");
             }
             catch (GridFSFileNotFoundException)
             {
@@ -159,7 +191,7 @@ namespace FestivalManagementWeb.Controllers
                 if (originalBitmap.Width <= MaxDimension && originalBitmap.Height <= MaxDimension)
                 {
                     using (var image = SKImage.FromBitmap(originalBitmap))
-                    using (var data = image.Encode(SKEncodedImageFormat.Jpeg, 90))
+                    using (var data = image.Encode(SKEncodedImageFormat.Png, 100))
                     {
                         return data.ToArray();
                     }
@@ -182,7 +214,7 @@ namespace FestivalManagementWeb.Controllers
                 {
                     originalBitmap.ScalePixels(resizedBitmap, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
                     using (var image = SKImage.FromBitmap(resizedBitmap))
-                    using (var data = image.Encode(SKEncodedImageFormat.Jpeg, 90))
+                    using (var data = image.Encode(SKEncodedImageFormat.Png, 100))
                     {
                         return data.ToArray();
                     }
@@ -191,5 +223,7 @@ namespace FestivalManagementWeb.Controllers
         }
     }
 }
+
+
 
 

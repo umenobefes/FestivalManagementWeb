@@ -1,0 +1,70 @@
+﻿name: Usage Guardian (CSharp Script)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: usage-guardian-csx
+  cancel-in-progress: true
+
+env:
+  SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  RESOURCE_GROUP: ${{ vars.CA_RESOURCE_GROUP }}
+  APP_NAME: ${{ vars.CA_APP_NAME }}
+  BUDGET_VCPU_SECONDS: 180000
+  BUDGET_GIB_SECONDS: 360000
+  BUDGET_REQUESTS: 2000000
+  BUDGET_DATA_GB: 100
+  WARN_PCT: 95
+  STOP_PCT: 100
+  REMAIN_STOP_PCT: ""
+  REMAIN_WARN_PCT: ""
+    COSMOS_ACCOUNT_NAME: ${{ vars.COSMOS_ACCOUNT_NAME }}
+  COSMOS_RESOURCE_GROUP: ${{ vars.COSMOS_RESOURCE_GROUP }}
+  COSMOS_SUBSCRIPTION_ID: ${{ vars.COSMOS_SUBSCRIPTION_ID }}
+  COSMOS_DATABASE_NAME: ${{ vars.COSMOS_DATABASE_NAME }}
+  COSMOS_COLLECTION_NAMES: ${{ vars.COSMOS_COLLECTION_NAMES }}
+  COSMOS_PROVISIONING: ${{ vars.COSMOS_PROVISIONING }}
+  COSMOS_FREE_RU_LIMIT: 1000
+  COSMOS_FREE_STORAGE_GB: 25
+  COSMOS_WARN_RU_PCT: 95
+  COSMOS_STOP_RU_PCT: 100
+  COSMOS_WARN_STORAGE_PCT: 95
+  COSMOS_STOP_STORAGE_PCT: 100
+\njobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ env.TENANT_ID }}
+          subscription-id: ${{ env.SUBSCRIPTION_ID }}
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install dotnet-script tool
+        run: dotnet tool install -g dotnet-script
+
+      - name: Run usage guardian script
+        run: |
+          export PATH="$PATH:/home/runner/.dotnet/tools"
+          dotnet script scripts/usage-guardian.csx
+
+
+
+

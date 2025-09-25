@@ -7,12 +7,14 @@ namespace FestivalManagementWeb.Repositories
 {
     public interface IImageKeyValueRepository
     {
-        Task<IEnumerable<ImageKeyValue>> GetAllAsync();
+        Task<IEnumerable<ImageKeyValue>> GetAllAsync(int year);
         Task<ImageKeyValue> GetByIdAsync(Guid id);
-        Task<ImageKeyValue> GetByKeyAsync(string key);
+        Task<ImageKeyValue> GetByKeyAsync(string key, int year);
         Task CreateAsync(ImageKeyValue imageKeyValue);
         Task<bool> UpdateAsync(ImageKeyValue imageKeyValue);
         Task<bool> DeleteAsync(Guid id);
-        Task<IEnumerable<ImageKeyValue>> GetDeployedBeforeAsync(DateTime date);
+        Task<long> DeleteByYearAsync(int year);
+
+        Task<IReadOnlyList<int>> GetDistinctYearsAsync();
     }
 }

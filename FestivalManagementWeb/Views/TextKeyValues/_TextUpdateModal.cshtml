@@ -12,11 +12,11 @@
                 </div>
                 <div class="modal-body">
                     <input type="hidden" name="ItemToEdit.Id" id="modalTextId" />
-                    
+                    <input type="hidden" name="ItemToEdit.Key" id="modalTextKey" />
+
                     <div class="mb-3">
-                        <label asp-for="ItemToEdit.Key" class="form-label"></label>
-                        <input name="ItemToEdit.Key" id="modalTextKey" class="form-control" required />
-                        <span asp-validation-for="ItemToEdit.Key" class="text-danger"></span>
+                        <label class="form-label">キー</label>
+                        <p class="fw-bold" id="modalTextKeyDisplay"></p>
                     </div>
 
                     <div class="mb-3">
@@ -33,3 +33,40 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var modalEl = document.getElementById('textUpdateModal');
+        if (!modalEl) return;
+
+        modalEl.addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget;
+            if (!button) return;
+            var id = button.getAttribute('data-id');
+            var key = button.getAttribute('data-key');
+            var value = button.getAttribute('data-value');
+
+            var idInput = document.getElementById('modalTextId');
+            var keyInput = document.getElementById('modalTextKey');
+            var keyDisplay = document.getElementById('modalTextKeyDisplay');
+            var valueInput = document.getElementById('modalTextValue');
+
+            if (idInput) idInput.value = id || '';
+            if (keyInput) keyInput.value = key || '';
+            if (keyDisplay) keyDisplay.textContent = key || '';
+            if (valueInput) valueInput.value = value || '';
+        });
+
+        modalEl.addEventListener('hidden.bs.modal', function () {
+            var idInput = document.getElementById('modalTextId');
+            var keyInput = document.getElementById('modalTextKey');
+            var keyDisplay = document.getElementById('modalTextKeyDisplay');
+            var valueInput = document.getElementById('modalTextValue');
+
+            if (idInput) idInput.value = '';
+            if (keyInput) keyInput.value = '';
+            if (keyDisplay) keyDisplay.textContent = '';
+            if (valueInput) valueInput.value = '';
+        });
+    });
+</script>

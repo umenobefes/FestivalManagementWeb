@@ -1,0 +1,41 @@
+@using System.Linq
+@model FestivalManagementWeb.Models.YearBranchSwitcherModel
+@{
+    var returnUrl = Context.Request.Path + Context.Request.QueryString;
+    var years = Model.AvailableYears.OrderByDescending(y => y).ToList();
+}
+
+<div class="d-flex align-items-center gap-2 year-branch-switcher">
+    <div class="d-flex align-items-center gap-1">
+        <span class="text-muted small">年度ブランチ</span>
+        <form asp-controller="YearBranch" asp-action="Select" method="post" class="mb-0">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+            <select name="year" class="form-select form-select-sm" onchange="this.form.submit()">
+                @foreach (var year in years)
+                {
+                    if (year == Model.CurrentYear)
+                    {
+                        <option value="@year" selected="selected">@year</option>
+                    }
+                    else
+                    {
+                        <option value="@year">@year</option>
+                    }
+                }
+            </select>
+        </form>
+    </div>
+    <form asp-controller="YearBranch" asp-action="CreateNext" method="post" class="mb-0">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="returnUrl" value="@returnUrl" />
+        @if (Model.NextYearExists)
+        {
+            <button type="submit" class="btn btn-sm btn-outline-primary" disabled="disabled">次年度ブランチ作成</button>
+        }
+        else
+        {
+            <button type="submit" class="btn btn-sm btn-outline-primary">次年度ブランチ作成</button>
+        }
+    </form>
+</div>

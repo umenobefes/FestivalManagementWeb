@@ -1,5 +1,7 @@
 using FestivalManagementWeb.Models;
 using FestivalManagementWeb.Repositories;
+using FestivalManagementWeb.Filters;
+using FestivalManagementWeb.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
@@ -11,42 +13,61 @@ namespace FestivalManagementWeb.Controllers
     public class TextKeyValuesController : Controller
     {
         private readonly ITextKeyValueRepository _textRepository;
+        private readonly IYearBranchService _yearBranchService;
 
-        public TextKeyValuesController(ITextKeyValueRepository textRepository)
+        public TextKeyValuesController(ITextKeyValueRepository textRepository, IYearBranchService yearBranchService)
         {
             _textRepository = textRepository;
+            _yearBranchService = yearBranchService;
         }
 
         public async Task<IActionResult> Index(Guid? id)
         {
-            var allItems = await _textRepository.GetAllAsync();
+            var selectedYear = await _yearBranchService.GetCurrentYearAsync();
+            var allItems = await _textRepository.GetAllAsync(selectedYear);
+
             var viewModel = new TextKeyValueViewModel
             {
                 AllItems = allItems,
-                ItemToEdit = new TextKeyValue()
+                ItemToEdit = new TextKeyValue { Year = selectedYear },
+                SelectedYear = selectedYear
             };
 
-            if (id != null)
+            if (id.HasValue)
             {
                 var item = await _textRepository.GetByIdAsync(id.Value);
-                if (item != null)
+                if (item != null && item.Year == selectedYear)
                 {
                     viewModel.ItemToEdit = item;
                 }
             }
 
+            ViewData["SelectedYear"] = selectedYear;
             return View(viewModel);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [CosmosCapacityGuard]
         public async Task<IActionResult> Upsert([Bind("ItemToEdit")] TextKeyValueViewModel model)
         {
+            var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var textKeyValue = model.ItemToEdit;
-            var existingByKey = await _textRepository.GetByKeyAsync(textKeyValue.Key);
+            textKeyValue.Year = selectedYear;
+
+            if (textKeyValue.Id != Guid.Empty)
+            {
+                var existingById = await _textRepository.GetByIdAsync(textKeyValue.Id);
+                if (existingById == null || existingById.Year != selectedYear)
+                {
+                    ModelState.AddModelError(string.Empty, "The requested item is not available for the current year.");
+                }
+            }
+
+            var existingByKey = await _textRepository.GetByKeyAsync(textKeyValue.Key, selectedYear);
             if (existingByKey != null && existingByKey.Id != textKeyValue.Id)
             {
-                ModelState.AddModelError("ItemToEdit.Key", "このキーは既に使用されています。");
+                ModelState.AddModelError("ItemToEdit.Key", "The provided key already exists for the selected year.");
             }
 
             if (ModelState.IsValid)
@@ -63,7 +84,9 @@ namespace FestivalManagementWeb.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            model.AllItems = await _textRepository.GetAllAsync();
+            model.AllItems = await _textRepository.GetAllAsync(selectedYear);
+            model.SelectedYear = selectedYear;
+            ViewData["SelectedYear"] = selectedYear;
             return View("Index", model);
         }
 
@@ -71,8 +94,31 @@ namespace FestivalManagementWeb.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(Guid id)
         {
-            await _textRepository.DeleteAsync(id);
+            var selectedYear = await _yearBranchService.GetCurrentYearAsync();
+            var item = await _textRepository.GetByIdAsync(id);
+            if (item != null && item.Year == selectedYear)
+            {
+                await _textRepository.DeleteAsync(id);
+            }
+            else
+            {
+                TempData["Error"] = "Unable to delete the requested item.";
+            }
             return RedirectToAction(nameof(Index));
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

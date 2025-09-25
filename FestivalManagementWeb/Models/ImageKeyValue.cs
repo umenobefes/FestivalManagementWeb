@@ -11,9 +11,10 @@ namespace FestivalManagementWeb.Models
 
         [Display(Name = "GridFSファイルID")]
         public ObjectId GridFSFileId { get; set; }
+        public bool HasImage => GridFSFileId != ObjectId.Empty;
         [Display(Name = "デプロイ済み")]
         public bool? Deployed { get; set; } = false;
-        [Display(Name = "更新日時")]
+        [Display(Name = "デプロイ日時")]
         public DateTime? DeployedDate { get; set; } = null;
     }
 }

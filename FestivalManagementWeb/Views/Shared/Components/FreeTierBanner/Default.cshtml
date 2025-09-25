@@ -1,0 +1,238 @@
+@model FestivalManagementWeb.Models.FreeTierInfo
+@if (!string.IsNullOrEmpty(Model?.Note))
+{
+    <div class="alert alert-warning text-center py-1 mb-0">
+        @Model.Note
+    </div>
+}
+else if (Model != null && Model.Enabled)
+{
+    var perDay = Math.Max(0, Math.Round(Model.HoursPerDayRemaining, 1));
+    var total = Math.Max(0, Math.Round(Model.HoursRemainingTotal, 1));
+    var usedHours = Math.Max(0, Math.Round(Model.HoursUsedEstimated, 1));
+    var dataPerDay = Math.Max(0, Math.Round(Model.DataPerDayRemainingGb, 2));
+    var dataRemain = Math.Max(0, Math.Round(Model.DataRemainingGb, 2));
+    var dataUsed = Math.Max(0, Math.Round(Model.DataUsedGb, 2));
+    var dataBudget = Math.Max(0, Math.Round(Model.DataUsedGb + Model.DataRemainingGb, 2));
+    var reqPerDay = Math.Max(0, Math.Round(Model.RequestsPerDayRemaining));
+    var reqRemain = Math.Max(0, Math.Round(Model.RequestsRemaining));
+    var reqUsed = Math.Max(0, Math.Round(Model.RequestsUsed));
+    var reqBudget = Math.Max(0, Math.Round(Model.RequestsUsed + Model.RequestsRemaining));
+    var reqDailyCap = (int)(ViewData["RequestsDailyCap"] ?? 0);
+    var reqDailyUsed = (int)(ViewData["RequestsDailyUsed"] ?? 0);
+    var reqDailyRemain = Math.Max(0, reqDailyCap - reqDailyUsed);
+    var cpuUsed = Math.Max(0, Math.Round(Model.UsedVcpuSeconds));
+    var cpuBudget = Math.Max(0, Math.Round(Model.UsedVcpuSeconds + Model.RemainingVcpuSeconds));
+    var cpuPerDay = Math.Max(0, Math.Round(Model.VcpuSecondsPerDay));
+    var memUsed = Math.Max(0, Math.Round(Model.UsedGiBSeconds));
+    var memBudget = Math.Max(0, Math.Round(Model.UsedGiBSeconds + Model.RemainingGiBSeconds));
+    var memPerDay = Math.Max(0, Math.Round(Model.GiBSecondsPerDay));
+    var updatedAt = Model.AsOfUtc.ToLocalTime().ToString("MM/dd HH:mm");
+    var cosmos = Model.Cosmos;
+    var cosmosEnabled = cosmos?.Enabled == true;
+    var cosmosStatusClass = cosmosEnabled
+        ? (cosmos!.ShouldStop ? "text-danger" : (cosmos.ShouldWarn ? "text-warning" : "text-success"))
+        : string.Empty;
+    var cosmosWithinFree = cosmos?.OverallWithinFreeTier != false;
+    var cosmosStateText = cosmosWithinFree
+        ? "無料枠内"
+        : (cosmos?.ShouldStop == true ? "無料枠超過" : "無料枠注意");
+    double? cosmosRu = cosmos?.ProvisionedRu.HasValue == true ? Math.Round(cosmos.ProvisionedRu.Value) : null;
+    double? cosmosRuLimit = cosmos?.FreeTierRuLimit > 0 ? Math.Round(cosmos.FreeTierRuLimit) : null;
+    double? cosmosRuPct = cosmos?.RuPercentOfLimit.HasValue == true ? Math.Round(cosmos.RuPercentOfLimit.Value, 1) : null;
+    double? cosmosStorage = cosmos?.StorageGb.HasValue == true ? Math.Round(cosmos.StorageGb.Value, 2) : null;
+    double? cosmosStorageLimit = cosmos?.FreeTierStorageLimitGb > 0 ? Math.Round(cosmos.FreeTierStorageLimitGb, 2) : null;
+    double? cosmosStoragePct = cosmos?.StoragePercentOfLimit.HasValue == true ? Math.Round(cosmos.StoragePercentOfLimit.Value, 1) : null;
+    var cosmosUpdated = cosmos?.CheckedAtUtc?.ToLocalTime().ToString("MM/dd HH:mm");
+    <div class="alert alert-info py-3 mb-0 free-tier-banner">
+        <div class="container-fluid small">
+            <div class="row g-3">
+                <div class="col-12 col-md-6 col-xl-3">
+                    <section class="metric-card h-100">
+                        <h6 class="metric-title">稼働時間</h6>
+                        <div class="metric-line">
+                            <span class="metric-label">残り / 日</span>
+                            <span class="metric-value"><strong>@perDay</strong> h</span>
+                        </div>
+                        <div class="metric-line">
+                            <span class="metric-label">残り合計</span>
+                            <span class="metric-value"><strong>@total</strong> h</span>
+                        </div>
+                        <div class="metric-line">
+                            <span class="metric-label">推定稼働済</span>
+                            <span class="metric-value"><strong>@usedHours</strong> h</span>
+                        </div>
+                        <p class="metric-footnote">@Model.DaysRemainingInMonth 日分の想定残量</p>
+                    </section>
+                </div>
+                <div class="col-12 col-md-6 col-xl-3">
+                    <section class="metric-card h-100">
+                        <h6 class="metric-title">リクエスト</h6>
+                        <div class="metric-line">
+                            <span class="metric-label">使用量</span>
+                            <span class="metric-value"><strong>@reqUsed</strong> / <strong>@reqBudget</strong></span>
+                        </div>
+                        <p class="metric-subline">@Math.Round(Model.RequestsUsedPercent, 1)% 使用</p>
+                        <div class="metric-line">
+                            <span class="metric-label">残り合計</span>
+                            <span class="metric-value"><strong>@reqRemain</strong></span>
+                        </div>
+                        <div class="metric-line">
+                            <span class="metric-label">残り / 日</span>
+                            <span class="metric-value"><strong>@reqPerDay</strong></span>
+                        </div>
+                        @if (reqDailyCap > 0)
+                        {
+                            <div class="metric-line">
+                                <span class="metric-label">今日</span>
+                                <span class="metric-value"><strong>@reqDailyUsed</strong> / <strong>@reqDailyCap</strong> (残り <strong>@reqDailyRemain</strong>)</span>
+                            </div>
+                        }
+                    </section>
+                </div>
+                <div class="col-12 col-md-6 col-xl-3">
+                    <section class="metric-card h-100">
+                        <h6 class="metric-title">コンピュート</h6>
+                        <div class="metric-line">
+                            <span class="metric-label">CPU</span>
+                            <span class="metric-value"><strong>@cpuUsed</strong> / <strong>@cpuBudget</strong> vCPU-s</span>
+                        </div>
+                        <p class="metric-subline">@Math.Round(Model.CpuUsedPercent, 1)% 使用・1日残り <strong>@cpuPerDay</strong> vCPU-s</p>
+                        <div class="metric-line">
+                            <span class="metric-label">メモリ</span>
+                            <span class="metric-value"><strong>@memUsed</strong> / <strong>@memBudget</strong> GiB-s</span>
+                        </div>
+                        <p class="metric-subline">@Math.Round(Model.MemUsedPercent, 1)% 使用・1日残り <strong>@memPerDay</strong> GiB-s</p>
+                    </section>
+                </div>
+                <div class="col-12 col-md-6 col-xl-3">
+                    <section class="metric-card h-100">
+                        <h6 class="metric-title">データ転送</h6>
+                        <div class="metric-line">
+                            <span class="metric-label">使用量</span>
+                            <span class="metric-value"><strong>@dataUsed</strong> / <strong>@dataBudget</strong> GB</span>
+                        </div>
+                        <p class="metric-subline">@Math.Round(Model.DataUsedPercent, 1)% 使用</p>
+                        <div class="metric-line">
+                            <span class="metric-label">残り合計</span>
+                            <span class="metric-value"><strong>@dataRemain</strong> GB</span>
+                        </div>
+                        <div class="metric-line">
+                            <span class="metric-label">残り / 日</span>
+                            <span class="metric-value"><strong>@dataPerDay</strong> GB</span>
+                        </div>
+                        <p class="metric-footnote">更新: @updatedAt</p>
+                    </section>
+                </div>
+                @if (cosmosEnabled)
+                {
+                    var cosmosTitle = cosmos!.Provisioning == FestivalManagementWeb.Models.CosmosProvisioningModel.VCore
+                        ? "Cosmos DB (Mongo vCore)"
+                        : "Cosmos DB (Mongo)";
+
+                    <div class="col-12 col-md-6 col-xl-3">
+                        <section class="metric-card h-100">
+                            <h6 class="metric-title">@cosmosTitle</h6>
+                            <div class="metric-line">
+                                <span class="metric-label">無料枠</span>
+                                <span class="metric-value @cosmosStatusClass"><strong>@cosmosStateText</strong></span>
+                            </div>
+                            <div class="metric-line">
+                                <span class="metric-label">無料枠設定</span>
+                                <span class="metric-value">@((cosmos!.FreeTierActive == true) ? "有効" : (cosmos.FreeTierActive == false ? "無効" : "不明"))</span>
+                            </div>
+                            @if (cosmos.Provisioning == FestivalManagementWeb.Models.CosmosProvisioningModel.RequestUnits)
+                            {
+                                <div class="metric-line">
+                                    <span class="metric-label">スループット</span>
+                                    <span class="metric-value">
+                                        @if (cosmosRu.HasValue && cosmosRuLimit.HasValue)
+                                        {
+                                            <text><strong>@cosmosRu.Value</strong> / <strong>@cosmosRuLimit.Value</strong> RU/s</text>
+                                        }
+                                        else if (cosmosRu.HasValue)
+                                        {
+                                            <text><strong>@cosmosRu.Value</strong> RU/s</text>
+                                        }
+                                        else
+                                        {
+                                            <text><span class="text-muted">計測中</span></text>
+                                        }
+                                    </span>
+                                </div>
+                                @if (cosmosRuPct.HasValue)
+                                {
+                                    <p class="metric-subline">@cosmosRuPct.Value% 使用</p>
+                                }
+                            }
+                            <div class="metric-line">
+                                <span class="metric-label">保存容量</span>
+                                <span class="metric-value">
+                                    @if (cosmosStorage.HasValue && cosmosStorageLimit.HasValue)
+                                    {
+                                        <text><strong>@cosmosStorage.Value</strong> / <strong>@cosmosStorageLimit.Value</strong> GB</text>
+                                    }
+                                    else if (cosmosStorage.HasValue)
+                                    {
+                                        <text><strong>@cosmosStorage.Value</strong> GB</text>
+                                    }
+                                    else
+                                    {
+                                        <text><span class="text-muted">計測中</span></text>
+                                    }
+                                </span>
+                            </div>
+                            @if (cosmosStoragePct.HasValue)
+                            {
+                                <p class="metric-subline">@cosmosStoragePct.Value% 使用</p>
+                            }
+                            @if (cosmos.RuBreakdown?.Count > 0)
+                            {
+                                <ul class="metric-footnote list-unstyled mb-2">
+                                    @foreach (var ru in cosmos.RuBreakdown)
+                                    {
+                                        <li>@ru.Scope: @Math.Round(ru.Throughput) RU/s</li>
+                                    }
+                                </ul>
+                            }
+                            @if (!string.IsNullOrEmpty(cosmos.Error))
+                            {
+                                <p class="metric-footnote text-danger">@cosmos.Error</p>
+                            }
+                            else if (cosmos.Issues?.Count > 0)
+                            {
+                                <ul class="metric-footnote list-unstyled mb-2 text-warning">
+                                    @foreach (var issue in cosmos.Issues)
+                                    {
+                                        <li>@issue</li>
+                                    }
+                                </ul>
+                            }
+                            else if (!string.IsNullOrEmpty(cosmos.Warning))
+                            {
+                                <p class="metric-footnote">@cosmos.Warning</p>
+                            }
+                            @if (!string.IsNullOrEmpty(cosmosUpdated))
+                            {
+                                <p class="metric-footnote">更新: @cosmosUpdated</p>
+                            }
+                            @if (cosmos.ShouldStop)
+                            {
+                                <p class="metric-footnote text-danger">
+                                    <a class="text-danger text-decoration-underline" asp-controller="FreeTier" asp-action="CapacityLimit">容量超過の対応方法を見る</a>
+                                </p>
+                            }
+                        </section>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+
+
+
+
+
+

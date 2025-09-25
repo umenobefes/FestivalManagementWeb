@@ -1,0 +1,27 @@
+@model System.DateTime?
+@{
+    if (Model == null)
+    {
+        @:""
+    }
+    else
+    {
+        var value = Model.Value;
+        System.DateTime utc = value.Kind == System.DateTimeKind.Utc
+            ? value
+            : value.Kind == System.DateTimeKind.Local
+                ? value.ToUniversalTime()
+                : System.DateTime.SpecifyKind(value, System.DateTimeKind.Utc);
+
+        System.TimeZoneInfo tz;
+        try { tz = System.TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time"); }
+        catch {
+            try { tz = System.TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo"); }
+            catch { tz = System.TimeZoneInfo.CreateCustomTimeZone("JST", System.TimeSpan.FromHours(9), "Tokyo", "Tokyo"); }
+        }
+
+        var jst = System.TimeZoneInfo.ConvertTimeFromUtc(utc, tz);
+        @jst.ToString("yyyy/MM/dd HH:mm")
+    }
+}
+

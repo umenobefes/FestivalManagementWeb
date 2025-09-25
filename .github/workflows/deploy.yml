@@ -1,0 +1,120 @@
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AZURE_RESOURCE_GROUP: rg-festivalmgmt
+  NAME_PREFIX: festivalmgmt
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set environment variables
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        else
+          echo "ENVIRONMENT=staging" >> $GITHUB_ENV
+        fi
+        echo "NAME_PREFIX=${{ env.NAME_PREFIX }}-${{ env.ENVIRONMENT }}" >> $GITHUB_ENV
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Extract subscription ID from Azure credentials
+      run: |
+        SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
+        echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+
+    - name: Create Resource Group
+      run: |
+        az group create \
+          --name ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }} \
+          --location japaneast
+
+    - name: Create secrets JSON from GitHub secrets
+      run: |
+        cat > infra/secrets.json << EOF
+        {
+          "googleClientId": "${{ secrets.GOOGLE_CLIENT_ID }}",
+          "googleClientSecret": "${{ secrets.GOOGLE_CLIENT_SECRET }}",
+          "initialUserEmail": "${{ secrets.INITIAL_USER_EMAIL }}",
+          "gitSettings": {
+            "authorName": "${{ secrets.GIT_AUTHOR_NAME }}",
+            "authorEmail": "${{ secrets.GIT_AUTHOR_EMAIL }}",
+            "token": "${{ secrets.GIT_TOKEN }}",
+            "cloneUrl": "${{ secrets.GIT_CLONE_URL }}"
+          }
+        }
+        EOF
+
+    - name: Deploy Bicep template
+      uses: azure/arm-deploy@v1
+      id: deploy-infra
+      with:
+        subscriptionId: ${{ env.SUBSCRIPTION_ID }}
+        resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }}
+        template: infra/main.bicep
+        parameters: |
+          namePrefix=${{ env.NAME_PREFIX }}
+          googleClientId=${{ secrets.GOOGLE_CLIENT_ID }}
+          googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          initialUserEmail=${{ secrets.INITIAL_USER_EMAIL }}
+
+    - name: Build Docker image
+      run: |
+        docker build -f FestivalManagementWeb/Dockerfile -t ${{ env.NAME_PREFIX }}-app:${{ github.sha }} .
+
+    - name: Get ACR credentials and login
+      run: |
+        ACR_PASSWORD=$(az acr credential show --name ${{ steps.deploy-infra.outputs.containerRegistryName }} --query "passwords[0].value" --output tsv)
+        echo $ACR_PASSWORD | docker login ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }} --username ${{ steps.deploy-infra.outputs.containerRegistryName }} --password-stdin
+
+    - name: Push Docker image
+      run: |
+        docker tag ${{ env.NAME_PREFIX }}-app:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:${{ github.sha }}
+        docker tag ${{ env.NAME_PREFIX }}-app:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:latest
+        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:${{ github.sha }}
+        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:latest
+
+    - name: Update Container App
+      run: |
+        az containerapp update \
+          --name ${{ env.NAME_PREFIX }}-app \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }} \
+          --image ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/${{ env.NAME_PREFIX }}-app:${{ github.sha }}
+
+    - name: Set Git settings from secrets
+      run: |
+        az containerapp update \
+          --name ${{ env.NAME_PREFIX }}-app \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }}-${{ env.ENVIRONMENT }} \
+          --set-env-vars \
+            "GitSettings__AuthorName=${{ secrets.GIT_AUTHOR_NAME }}" \
+            "GitSettings__AuthorEmail=${{ secrets.GIT_AUTHOR_EMAIL }}" \
+            "GitSettings__Token=${{ secrets.GIT_TOKEN }}" \
+            "GitSettings__CloneUrl=${{ secrets.GIT_CLONE_URL }}"
+
+    - name: Output application URL
+      run: |
+        echo "Application deployed to: ${{ steps.deploy-infra.outputs.containerAppUrl }}"

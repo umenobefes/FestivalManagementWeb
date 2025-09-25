@@ -1,10 +1,12 @@
-using AspNetCore.Identity.MongoDbCore.Models;
+﻿using AspNetCore.Identity.MongoDbCore.Models;
 using FestivalManagementWeb.Models;
 using FestivalManagementWeb.Repositories;
+using FestivalManagementWeb.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using MongoDB.Driver;
 using System;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +15,18 @@ var builder = WebApplication.CreateBuilder(args);
 // Configure MongoDB settings
 var mongoDbSettings = builder.Configuration.GetSection("MongoDbSettings").Get<FestivalManagementWeb.Models.MongoDbSettings>()!;
 builder.Services.AddSingleton(mongoDbSettings);
+builder.Services.AddHttpContextAccessor();
+
+// Bind FreeTier settings and service
+builder.Services.Configure<FestivalManagementWeb.Models.FreeTierSettings>(
+    builder.Configuration.GetSection("FreeTier"));
+builder.Services.AddSingleton<FestivalManagementWeb.Services.IFreeTierService, FestivalManagementWeb.Services.FreeTierService>();
+builder.Services.Configure<FestivalManagementWeb.Models.AzureUsageSettings>(builder.Configuration.GetSection("AzureUsage"));
+builder.Services.AddSingleton<FestivalManagementWeb.Services.IAutoUsageState, FestivalManagementWeb.Services.AutoUsageState>();
+builder.Services.AddSingleton<FestivalManagementWeb.Services.IAzureUsageProvider, FestivalManagementWeb.Services.AzureUsageProvider>();
+builder.Services.AddSingleton<FestivalManagementWeb.Services.ICosmosFreeTierProvider, FestivalManagementWeb.Services.CosmosFreeTierProvider>();
+builder.Services.AddHostedService<FestivalManagementWeb.Services.AutoUsageRefreshHostedService>();
+builder.Services.AddSingleton<FestivalManagementWeb.Services.IRequestQuotaService, FestivalManagementWeb.Services.RequestQuotaService>();
 
 // Configure Identity with MongoDB
 builder.Services.AddIdentity<ApplicationUser, MongoIdentityRole<Guid>>(options =>
@@ -27,7 +41,7 @@ builder.Services.AddIdentity<ApplicationUser, MongoIdentityRole<Guid>>(options =
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    })
+    })settings.Development.jsonの初期値似してください
     .AddCookie(options =>
     {
         options.LoginPath = "/Account/Login";
@@ -52,6 +66,8 @@ builder.Services.AddScoped<MongoDB.Driver.GridFS.IGridFSBucket>(sp =>
 
 builder.Services.AddScoped<ITextKeyValueRepository, TextKeyValueRepository>();
 builder.Services.AddScoped<IImageKeyValueRepository, ImageKeyValueRepository>();
+builder.Services.AddScoped<IGitService, GitService>();
+builder.Services.AddScoped<IYearBranchService, YearBranchService>();
 
 builder.Services.AddControllersWithViews();
 
@@ -64,13 +80,30 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+// Respect reverse proxy headers in ACA/ingress (should run early)
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    KnownNetworks = { },
+    KnownProxies = { }
+});
+
 app.UseHttpsRedirection();
+
+// Enforce daily request cap before serving static files or MVC
+app.UseMiddleware<FestivalManagementWeb.Middleware.RequestQuotaMiddleware>();
+
 app.UseStaticFiles();
 
 app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapControllerRoute(
+    name: "home",
+    pattern: "home/{action=Index}/{id?}",
+    defaults: new { controller = "Home" });
 
 app.MapControllerRoute(
     name: "default",
@@ -83,8 +116,44 @@ using (var scope = app.Services.CreateScope())
     var textKeyValues = database.GetCollection<TextKeyValue>("TextKeyValues");
     var imageKeyValues = database.GetCollection<ImageKeyValue>("ImageKeyValues");
 
-    var textKeyIndex = new CreateIndexModel<TextKeyValue>(Builders<TextKeyValue>.IndexKeys.Ascending(x => x.Key), new CreateIndexOptions { Unique = true });
-    var imageKeyIndex = new CreateIndexModel<ImageKeyValue>(Builders<ImageKeyValue>.IndexKeys.Ascending(x => x.Key), new CreateIndexOptions { Unique = true });
+    try
+    {
+        textKeyValues.Indexes.DropOne("Key_1");
+    }
+    catch (MongoCommandException)
+    {
+        // Index may not exist in fresh databases; ignore.
+    }
+
+    try
+    {
+        imageKeyValues.Indexes.DropOne("Key_1");
+    }
+    catch (MongoCommandException)
+    {
+        // Index may not exist in fresh databases; ignore.
+    }
+
+    var currentYear = DateTime.UtcNow.Year;
+
+    var textMissingYearFilter = Builders<TextKeyValue>.Filter.Or(
+        Builders<TextKeyValue>.Filter.Exists(nameof(TextKeyValue.Year), false),
+        Builders<TextKeyValue>.Filter.Eq(x => x.Year, 0));
+    var textSetYearUpdate = Builders<TextKeyValue>.Update.Set(x => x.Year, currentYear);
+    textKeyValues.UpdateMany(textMissingYearFilter, textSetYearUpdate);
+
+    var imageMissingYearFilter = Builders<ImageKeyValue>.Filter.Or(
+        Builders<ImageKeyValue>.Filter.Exists(nameof(ImageKeyValue.Year), false),
+        Builders<ImageKeyValue>.Filter.Eq(x => x.Year, 0));
+    var imageSetYearUpdate = Builders<ImageKeyValue>.Update.Set(x => x.Year, currentYear);
+    imageKeyValues.UpdateMany(imageMissingYearFilter, imageSetYearUpdate);
+
+    var textKeyIndex = new CreateIndexModel<TextKeyValue>(
+        Builders<TextKeyValue>.IndexKeys.Ascending(x => x.Year).Ascending(x => x.Key),
+        new CreateIndexOptions { Unique = true });
+    var imageKeyIndex = new CreateIndexModel<ImageKeyValue>(
+        Builders<ImageKeyValue>.IndexKeys.Ascending(x => x.Year).Ascending(x => x.Key),
+        new CreateIndexOptions { Unique = true });
 
     textKeyValues.Indexes.CreateOne(textKeyIndex);
     imageKeyValues.Indexes.CreateOne(imageKeyIndex);
@@ -119,3 +188,4 @@ async Task SeedInitialUser(IHost app)
 await SeedInitialUser(app);
 
 app.Run();
+
