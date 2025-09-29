@@ -16,11 +16,14 @@ param containerAppsEnvironmentName string = '${namePrefix}-env'
 @description('Container App name')
 param containerAppName string = '${namePrefix}-app'
 
+@description('Container registry server hostname; use ghcr.io for GitHub Container Registry')
+param containerRegistryServer string = 'ghcr.io'
+
+@description('Container registry repository in the form owner/repository')
+param containerRegistryRepository string
+
 @description('Log Analytics workspace name')
 param logAnalyticsWorkspaceName string = '${namePrefix}-logs'
-
-@description('Container registry name')
-param containerRegistryName string = replace('${namePrefix}acr', '-', '')
 
 @description('Path to secrets JSON file')
 param secretsFile string = 'secrets.json'
@@ -36,43 +39,31 @@ var gitToken = secrets.gitSettings.token
 var gitCloneUrl = secrets.gitSettings.cloneUrl
 var mongoAdminPassword = secrets.mongoAdminPassword
 
-// Log Analytics Workspace
-resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
-  name: logAnalyticsWorkspaceName
-  location: location
-  properties: {
-    sku: {
-      name: 'PerGB2018'
-    }
-    retentionInDays: 30
-  }
-}
+// Log Analytics Workspace - Disabled to save costs
+// resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
+//   name: logAnalyticsWorkspaceName
+//   location: location
+//   properties: {
+//     sku: {
+//       name: 'PerGB2018'
+//     }
+//     retentionInDays: 30
+//   }
+// }
 
 // Container Apps Environment
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01' = {
   name: containerAppsEnvironmentName
   location: location
   properties: {
-    appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: logAnalyticsWorkspace.properties.customerId
-        sharedKey: logAnalyticsWorkspace.listKeys().primarySharedKey
-      }
-    }
-  }
-}
-
-// Container Registry (Free tier)
-resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: containerRegistryName
-  location: location
-  sku: {
-    name: 'Basic'
-  }
-  properties: {
-    adminUserEnabled: true
-    publicNetworkAccess: 'Enabled'
+    // Logging disabled to save costs
+    // appLogsConfiguration: {
+    //   destination: 'log-analytics'
+    //   logAnalyticsConfiguration: {
+    //     customerId: logAnalyticsWorkspace.properties.customerId
+    //     sharedKey: logAnalyticsWorkspace.listKeys().primarySharedKey
+    //   }
+    // }
   }
 }
 
@@ -115,6 +106,9 @@ resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRu
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   name: containerAppName
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     managedEnvironmentId: containerAppsEnvironment.id
     configuration: {
@@ -132,15 +126,12 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           value: googleClientSecret
         }
         {
-          name: 'registry-password'
-          value: containerRegistry.listCredentials().passwords[0].value
+          name: 'git-token'
+          value: gitToken
         }
-      ]
-      registries: [
         {
-          server: containerRegistry.properties.loginServer
-          username: containerRegistry.name
-          passwordSecretRef: 'registry-password'
+          name: 'git-clone-url'
+          value: gitCloneUrl
         }
       ]
       ingress: {
@@ -159,7 +150,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       containers: [
         {
           name: containerAppName
-          image: '${containerRegistry.properties.loginServer}/${containerAppName}:${imageTag}'
+          image: '${containerRegistryServer}/${containerRegistryRepository}:${imageTag}'
           env: [
             {
               name: 'ASPNETCORE_ENVIRONMENT'
@@ -319,11 +310,11 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
             {
               name: 'GitSettings__Token'
-              value: gitToken
+              secretRef: 'git-token'
             }
             {
               name: 'GitSettings__CloneUrl'
-              value: gitCloneUrl
+              secretRef: 'git-clone-url'
             }
           ]
           resources: {
@@ -350,9 +341,49 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
+// Role assignments for Container App managed identity
+
+resource containerAppResourceGroupReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, containerApp.identity.principalId, 'Reader')
+  scope: resourceGroup()
+  properties: {
+    principalId: containerApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
+  }
+  dependsOn: [
+    containerApp
+  ]
+}
+
+resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, containerApp.identity.principalId, 'MonitoringReader')
+  scope: resourceGroup()
+  properties: {
+    principalId: containerApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43ffd8ad-0a53-4d32-b4f2-2184e67fc42a')
+  }
+  dependsOn: [
+    containerApp
+  ]
+}
+
+resource containerAppCostReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(subscription().id, containerApp.identity.principalId, 'CostManagementReader')
+  scope: subscription()
+  properties: {
+    principalId: containerApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '72d43a3d-b78b-415c-90f0-5ee7a6db6b4b')
+  }
+  dependsOn: [
+    containerApp
+  ]
+}
+
 // Outputs
 output containerAppUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
-output mongoConnectionString string = cosmosMongoCluster.listConnectionStrings().connectionStrings[0].connectionString
 output cosmosMongoClusterName string = cosmosMongoCluster.name
-output containerRegistryLoginServer string = containerRegistry.properties.loginServer
-output containerRegistryName string = containerRegistry.name
+
+

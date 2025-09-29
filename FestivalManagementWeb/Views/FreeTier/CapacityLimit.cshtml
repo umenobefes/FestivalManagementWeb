@@ -1,54 +1,49 @@
-@using System
+﻿@using System
 @model FestivalManagementWeb.Models.CosmosCapacityViewModel
 @{
-    ViewData["Title"] = "Cosmos �e�ʐ���";
+    ViewData["Title"] = "Cosmos 容量制限";
     var cosmos = Model.Cosmos;
-    var storageDisplay = cosmos.StorageGb.HasValue ? $"{cosmos.StorageGb.Value:F2} GB" : "�擾��";
-    var limitDisplay = cosmos.FreeTierStorageLimitGb > 0 ? $"{cosmos.FreeTierStorageLimitGb:F2} GB" : "���ݒ�";
+    var storageDisplay = cosmos.StorageGb.HasValue ? $"{cosmos.StorageGb.Value:F2} GB" : "取得中";
+    var limitDisplay = cosmos.FreeTierStorageLimitGb > 0 ? $"{cosmos.FreeTierStorageLimitGb:F2} GB" : "未設定";
     var percentDisplay = cosmos.StoragePercentOfLimit.HasValue ? $"{cosmos.StoragePercentOfLimit.Value:F1}%" : "-";
-    var ruDisplay = cosmos.Provisioning == FestivalManagementWeb.Models.CosmosProvisioningModel.RequestUnits
-        ? (cosmos.ProvisionedRu.HasValue ? $"{cosmos.ProvisionedRu.Value:F0} RU/s" : "�擾��")
-        : "�ΏۊO";
     var years = Model.AvailableYears ?? Array.Empty<int>();
 }
 <div class="container py-4">
-    <h1 class="mb-3">Cosmos DB �e�ʐ���</h1>
+    <h1 class="mb-3">Cosmos DB 容量制限</h1>
     <div class="alert alert-danger" role="alert">
-        <h4 class="alert-heading">Cosmos DB �̖����g�𒴉߂��܂����B</h4>
-        <p class="mb-1">�ۑ��e�ʂ������g����ɓ��B�������߁A�V�����f�[�^�̓o�^�E�X�V�̓u���b�N����Ă��܂��B</p>
-        <p class="mb-0">�s�v�ȃf�[�^���폜���邩�ACosmos DB �̃v�������g�����Ă���Ď��s���Ă��������B</p>
+        <h4 class="alert-heading">Cosmos DB の無料枠を超過しました。</h4>
+        <p class="mb-1">保存容量が無料枠上限に到達したため、新しいデータの登録・更新はブロックされています。</p>
+        <p class="mb-0">不要なデータを削除するか、Cosmos DB のプランを拡張してから再試行してください。</p>
     </div>
     <div class="card mb-4">
-        <div class="card-header">���݂� Cosmos DB �g�p��</div>
+        <div class="card-header">現在の Cosmos DB 使用状況</div>
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-4">�v���r�W���j���O ���f��</dt>
+                <dt class="col-sm-4">プロビジョニング モデル</dt>
                 <dd class="col-sm-8">@cosmos.Provisioning</dd>
-                <dt class="col-sm-4">�ۑ��e��</dt>
+                <dt class="col-sm-4">保存容量</dt>
                 <dd class="col-sm-8">@storageDisplay / @limitDisplay (@percentDisplay)</dd>
-                <dt class="col-sm-4">RU �X���[�v�b�g</dt>
-                <dd class="col-sm-8">@ruDisplay</dd>
-                <dt class="col-sm-4">�����g�ݒ�</dt>
+                <dt class="col-sm-4">無料枠設定</dt>
                 <dd class="col-sm-8">
-                    @(cosmos.FreeTierActive == true ? "�L��" : cosmos.FreeTierActive == false ? "����" : "�s��")
+                    @(cosmos.FreeTierActive == true ? "有効" : cosmos.FreeTierActive == false ? "無効" : "不明")
                 </dd>
-                <dt class="col-sm-4">�ŏI�X�V</dt>
-                <dd class="col-sm-8">@(cosmos.CheckedAtUtc?.ToLocalTime().ToString("yyyy/MM/dd HH:mm") ?? "�擾��")</dd>
+                <dt class="col-sm-4">最終更新</dt>
+                <dd class="col-sm-8">@(cosmos.CheckedAtUtc?.ToLocalTime().ToString("yyyy/MM/dd HH:mm") ?? "取得中")</dd>
             </dl>
         </div>
     </div>
     <div class="card mb-4">
-        <div class="card-header">�Ή����@</div>
+        <div class="card-header">対応方法</div>
         <div class="card-body">
             <ul class="mb-3">
-                <li>�s�v�ɂȂ����e�L�X�g�^�摜�f�[�^���폜���ċ󂫗e�ʂ��m�ۂ���B</li>
-                <li>Cosmos DB �A�J�E���g�̗e�ʂ��g������A�܂��͗L���v�����֐؂�ւ���B</li>
-                <li>Azure Portal �Ńo�b�N�A�b�v��A�[�J�C�u�����{���A��p�x�f�[�^��ʃX�g���[�W�ֈڍs����B</li>
+                <li>不要になったテキスト／画像データを削除して空き容量を確保する。</li>
+                <li>Cosmos DB アカウントの容量を拡張する、または有料プランへ切り替える。</li>
+                <li>Azure Portal でバックアップやアーカイブを実施し、低頻度データを別ストレージへ移行する。</li>
             </ul>
             <div class="d-flex flex-wrap gap-2">
-                <a class="btn btn-outline-primary" asp-controller="TextKeyValues" asp-action="Index">�e�L�X�g�f�[�^�Ǘ���</a>
-                <a class="btn btn-outline-primary" asp-controller="ImageKeyValues" asp-action="Index">�摜�f�[�^�Ǘ���</a>
-                <a class="btn btn-outline-secondary" href="https://portal.azure.com/" target="_blank" rel="noopener">Azure Portal ���J��</a>
+                <a class="btn btn-outline-primary" asp-controller="TextKeyValues" asp-action="Index">テキストデータ管理へ</a>
+                <a class="btn btn-outline-primary" asp-controller="ImageKeyValues" asp-action="Index">画像データ管理へ</a>
+                <a class="btn btn-outline-secondary" href="https://portal.azure.com/" target="_blank" rel="noopener">Azure Portal を開く</a>
             </div>
         </div>
     </div>
@@ -57,12 +52,12 @@
         <div class="alert alert-info">@Model.CleanupMessage</div>
     }
     <div class="card mb-4">
-        <div class="card-header">�N�x�ʃf�[�^�폜 (Cosmos DB for MongoDB)</div>
+        <div class="card-header">年度別データ削除 (Cosmos DB for MongoDB)</div>
         <div class="card-body">
-            <p class="text-muted small mb-3">�Ώۂ̔N�x��I�����č폜����ƁACosmos DB for MongoDB �ɕۑ�����Ă���Y���N�x�̃f�[�^����������܂��B�摜�f�[�^���폜����Ɗ֘A���� GridFS �o�C�i�����폜����܂��B</p>
+            <p class="text-muted small mb-3">対象の年度を選択して削除すると、Cosmos DB for MongoDB に保存されている該当年度のデータが消去されます。画像データを削除すると関連する GridFS バイナリも削除されます。</p>
             @if (years.Count == 0)
             {
-                <p class="mb-0">�폜�\�ȔN�x�̃f�[�^�͂���܂���B</p>
+                <p class="mb-0">削除可能な年度のデータはありません。</p>
             }
             else
             {
@@ -70,40 +65,48 @@
                     <div class="col-12 col-lg-6">
                         <form asp-action="DeleteTextYear" method="post" class="row g-2 align-items-end">
                             <div class="col-12 col-sm-auto">
-                                <label class="form-label" for="textYear">�N�x</label>
+                                <label class="form-label" for="textYear">年度</label>
                                 <select class="form-select" id="textYear" name="year" required>
                                     @foreach (var year in years)
                                     {
-                                        <option value="@year">@year �N</option>
+                                        <option value="@year">@year 年</option>
                                     }
                                 </select>
                             </div>
                             <div class="col-auto">
-                                <button type="submit" class="btn btn-danger">�e�L�X�g�f�[�^���폜</button>
+                                <button type="submit" class="btn btn-danger">テキストデータを削除</button>
                             </div>
                         </form>
                     </div>
                     <div class="col-12 col-lg-6">
                         <form asp-action="DeleteImageYear" method="post" class="row g-2 align-items-end">
                             <div class="col-12 col-sm-auto">
-                                <label class="form-label" for="imageYear">�N�x</label>
+                                <label class="form-label" for="imageYear">年度</label>
                                 <select class="form-select" id="imageYear" name="year" required>
                                     @foreach (var year in years)
                                     {
-                                        <option value="@year">@year �N</option>
+                                        <option value="@year">@year 年</option>
                                     }
                                 </select>
                             </div>
                             <div class="col-auto">
-                                <button type="submit" class="btn btn-warning">�摜�f�[�^���폜</button>
+                                <button type="submit" class="btn btn-warning">画像データを削除</button>
                             </div>
                         </form>
                     </div>
                 </div>
-                <p class="text-danger small mt-3 mb-0">�� �폜�͎������܂���B�K�v�ɉ����ăo�b�N�A�b�v���擾���Ă�����s���Ă��������B</p>
+                <p class="text-danger small mt-3 mb-0">※ 削除は取り消せません。必要に応じてバックアップを取得してから実行してください。</p>
             }
         </div>
     </div>
-    <a class="btn btn-link" asp-controller="Home" asp-action="Index">�_�b�V���{�[�h�֖߂�</a>
+    <a class="btn btn-link" asp-controller="Home" asp-action="Index">ダッシュボードへ戻る</a>
 </div>
+
+
+
+
+
+
+
+
 

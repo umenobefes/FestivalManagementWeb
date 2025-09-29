@@ -3,8 +3,11 @@ name: Deploy to Azure Container Apps
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build-and-deploy:
@@ -29,9 +32,23 @@ jobs:
       run: |
         NAME_PREFIX=$(jq -r '.parameters.namePrefix.value' infra/parameters.json)
         LOCATION=$(jq -r '.parameters.location.value' infra/parameters.json)
+        REGISTRY_REPOSITORY=$(jq -r '.parameters.containerRegistryRepository.value // empty' infra/parameters.json 2>/dev/null)
+        REGISTRY_SERVER=$(jq -r '.parameters.containerRegistryServer.value // empty' infra/parameters.json 2>/dev/null)
+        if [ "$REGISTRY_REPOSITORY" = "null" ]; then
+          REGISTRY_REPOSITORY=""
+        fi
+        if [ -z "$REGISTRY_REPOSITORY" ]; then
+          REGISTRY_REPOSITORY="${GITHUB_REPOSITORY}"
+          REGISTRY_REPOSITORY=$(echo "$REGISTRY_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+        fi
+        if [ "$REGISTRY_SERVER" = "null" ] || [ -z "$REGISTRY_SERVER" ]; then
+          REGISTRY_SERVER="ghcr.io"
+        fi
         echo "name-prefix=$NAME_PREFIX" >> $GITHUB_OUTPUT
         echo "location=$LOCATION" >> $GITHUB_OUTPUT
         echo "resource-group=rg-${NAME_PREFIX}" >> $GITHUB_OUTPUT
+        echo "container-registry-repository=$REGISTRY_REPOSITORY" >> $GITHUB_OUTPUT
+        echo "container-registry-server=$REGISTRY_SERVER" >> $GITHUB_OUTPUT
 
     - name: Create Resource Group
       run: |
@@ -50,33 +67,44 @@ jobs:
         subscriptionId: ${{ env.SUBSCRIPTION_ID }}
         resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
         template: infra/main.bicep
-        parameters: infra/parameters.json
+        parameters: >
+          infra/parameters.json
+          containerRegistryServer=${{ steps.extract-params.outputs.container-registry-server }}
+          containerRegistryRepository=${{ steps.extract-params.outputs.container-registry-repository }}
 
     - name: Build Docker image
       run: |
-        docker build -f FestivalManagementWeb/Dockerfile -t ${{ steps.extract-params.outputs.name-prefix }}-app:${{ github.sha }} .
+        IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
+        docker build -f FestivalManagementWeb/Dockerfile -t $IMAGE_NAME:${{ github.sha }} .
 
-    - name: Get ACR credentials and login
+    - name: Login to container registry
       run: |
-        ACR_PASSWORD=$(az acr credential show --name ${{ steps.deploy-infra.outputs.containerRegistryName }} --query "passwords[0].value" --output tsv)
-        echo $ACR_PASSWORD | docker login ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }} --username ${{ steps.deploy-infra.outputs.containerRegistryName }} --password-stdin
+        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
+        echo "${{ secrets.GHCR_TOKEN }}" | docker login "$REGISTRY" --username "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
     - name: Push Docker image
       run: |
         IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
-        docker tag $IMAGE_NAME:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:${{ github.sha }}
-        docker tag $IMAGE_NAME:${{ github.sha }} ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:latest
-        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:${{ github.sha }}
-        docker push ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:latest
+        REPOSITORY="${{ steps.extract-params.outputs.container-registry-repository }}"
+        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
+        TARGET_IMAGE="$REGISTRY/$REPOSITORY"
+        docker tag $IMAGE_NAME:${{ github.sha }} $TARGET_IMAGE:${{ github.sha }}
+        docker tag $IMAGE_NAME:${{ github.sha }} $TARGET_IMAGE:latest
+        docker push $TARGET_IMAGE:${{ github.sha }}
+        docker push $TARGET_IMAGE:latest
 
     - name: Update Container App
       run: |
         IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
+        REPOSITORY="${{ steps.extract-params.outputs.container-registry-repository }}"
+        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
+        TARGET_IMAGE="$REGISTRY/$REPOSITORY:${{ github.sha }}"
         az containerapp update \
           --name $IMAGE_NAME \
           --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --image ${{ steps.deploy-infra.outputs.containerRegistryLoginServer }}/$IMAGE_NAME:${{ github.sha }}
+          --image $TARGET_IMAGE
 
     - name: Output application URL
       run: |
         echo "Application deployed to: ${{ steps.deploy-infra.outputs.containerAppUrl }}"
+

@@ -24,7 +24,7 @@ using Azure.ResourceManager.AppContainers;
 
 const string ManagementEndpoint = "https://management.azure.com";
 const string ManagementScope = "https://management.azure.com/.default";
-const string AccountApiVersion = "2024-05-15";
+const string AccountApiVersion = "2025-04-01-preview";
 const string MetricsApiVersion = "2018-01-01";
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
@@ -81,14 +81,17 @@ static async Task RunAsync()
     var resourceGroup = RequireEnv("RESOURCE_GROUP");
     var appName = RequireEnv("APP_NAME");
 
-    double budgetCpuSeconds = GetDouble("BUDGET_VCPU_SECONDS");
-    double budgetGibSeconds = GetDouble("BUDGET_GIB_SECONDS");
-    double budgetRequests = GetDouble("BUDGET_REQUESTS");
-    double budgetDataGb = GetDouble("BUDGET_DATA_GB");
+    // Use environment variables with fallback to FreeTier config format
+    double budgetCpuSeconds = GetOptionalDouble("BUDGET_VCPU_SECONDS") ?? GetDouble("FreeTier__BudgetVcpuSeconds");
+    double budgetGibSeconds = GetOptionalDouble("BUDGET_GIB_SECONDS") ?? GetDouble("FreeTier__BudgetGiBSeconds");
+    double budgetRequests = GetOptionalDouble("BUDGET_REQUESTS") ?? GetDouble("FreeTier__Requests__Budget");
+    double budgetDataGb = GetOptionalDouble("BUDGET_DATA_GB") ?? GetDouble("FreeTier__Data__BudgetGb");
     double warnPct = GetDouble("WARN_PCT");
     double stopPct = GetDouble("STOP_PCT");
     double? remainStopPct = GetOptionalDouble("REMAIN_STOP_PCT");
     double? remainWarnPct = GetOptionalDouble("REMAIN_WARN_PCT");
+    var freezeSetting = Environment.GetEnvironmentVariable("FREEZE_ON_STOP");
+    bool freezeOnStop = !string.Equals(freezeSetting, "false", StringComparison.OrdinalIgnoreCase);
     bool disableIngress = string.Equals(Environment.GetEnvironmentVariable("DISABLE_INGRESS_ON_STOP"), "true", StringComparison.OrdinalIgnoreCase);
 
     var cosmosAccount = OptionalEnv("COSMOS_ACCOUNT_NAME");
@@ -309,39 +312,46 @@ static async Task RunAsync()
 
     if (shouldStop)
     {
-        Console.WriteLine("Threshold reached: freezing Container App");
-
-        var properties = new Dictionary<string, object?>
+        if (freezeOnStop)
         {
-            ["template"] = new Dictionary<string, object?>
+            Console.WriteLine("Threshold reached: freezing Container App");
+
+            var properties = new Dictionary<string, object?>
             {
-                ["scale"] = new Dictionary<string, object?>
+                ["template"] = new Dictionary<string, object?>
                 {
-                    ["minReplicas"] = 0,
-                    ["maxReplicas"] = 0
+                    ["scale"] = new Dictionary<string, object?>
+                    {
+                        ["minReplicas"] = 0,
+                        ["maxReplicas"] = 0
+                    }
                 }
-            }
-        };
-
-        if (disableIngress)
-        {
-            properties["configuration"] = new Dictionary<string, object?>
-            {
-                ["ingress"] = null
             };
+
+            if (disableIngress)
+            {
+                properties["configuration"] = new Dictionary<string, object?>
+                {
+                    ["ingress"] = null
+                };
+            }
+
+            var patch = new Dictionary<string, object?>
+            {
+                ["properties"] = properties
+            };
+
+            string patchJson = JsonSerializer.Serialize(patch, new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            });
+
+            await containerApp.UpdateAsync(WaitUntil.Completed, BinaryData.FromString(patchJson));
         }
-
-        var patch = new Dictionary<string, object?>
+        else
         {
-            ["properties"] = properties
-        };
-
-        string patchJson = JsonSerializer.Serialize(patch, new JsonSerializerOptions
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        });
-
-        await containerApp.UpdateAsync(WaitUntil.Completed, BinaryData.FromString(patchJson));
+            Console.WriteLine("Threshold reached, but FREEZE_ON_STOP is set to false. Container App remains available.");
+        }
     }
     else if (shouldWarn)
     {

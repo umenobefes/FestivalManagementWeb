@@ -1,4 +1,4 @@
-﻿using AspNetCore.Identity.MongoDbCore.Models;
+using AspNetCore.Identity.MongoDbCore.Models;
 using FestivalManagementWeb.Models;
 using FestivalManagementWeb.Repositories;
 using FestivalManagementWeb.Services;
@@ -41,7 +41,7 @@ builder.Services.AddIdentity<ApplicationUser, MongoIdentityRole<Guid>>(options =
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    })settings.Development.jsonの初期値似してください
+    })
     .AddCookie(options =>
     {
         options.LoginPath = "/Account/Login";
@@ -188,4 +188,6 @@ async Task SeedInitialUser(IHost app)
 await SeedInitialUser(app);
 
 app.Run();
+
+
 

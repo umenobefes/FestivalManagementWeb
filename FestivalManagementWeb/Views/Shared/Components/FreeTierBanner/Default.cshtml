@@ -1,4 +1,4 @@
-@model FestivalManagementWeb.Models.FreeTierInfo
+Ôªø@model FestivalManagementWeb.Models.FreeTierInfo
 @if (!string.IsNullOrEmpty(Model?.Note))
 {
     <div class="alert alert-warning text-center py-1 mb-0">
@@ -30,16 +30,16 @@ else if (Model != null && Model.Enabled)
     var updatedAt = Model.AsOfUtc.ToLocalTime().ToString("MM/dd HH:mm");
     var cosmos = Model.Cosmos;
     var cosmosEnabled = cosmos?.Enabled == true;
-    var cosmosStatusClass = cosmosEnabled
-        ? (cosmos!.ShouldStop ? "text-danger" : (cosmos.ShouldWarn ? "text-warning" : "text-success"))
-        : string.Empty;
     var cosmosWithinFree = cosmos?.OverallWithinFreeTier != false;
     var cosmosStateText = cosmosWithinFree
-        ? "ñ≥óøògì‡"
-        : (cosmos?.ShouldStop == true ? "ñ≥óøògí¥âﬂ" : "ñ≥óøògíçà”");
-    double? cosmosRu = cosmos?.ProvisionedRu.HasValue == true ? Math.Round(cosmos.ProvisionedRu.Value) : null;
-    double? cosmosRuLimit = cosmos?.FreeTierRuLimit > 0 ? Math.Round(cosmos.FreeTierRuLimit) : null;
-    double? cosmosRuPct = cosmos?.RuPercentOfLimit.HasValue == true ? Math.Round(cosmos.RuPercentOfLimit.Value, 1) : null;
+        ? "ÁÑ°ÊñôÊû†ÂÜÖ"
+        : (cosmos?.ShouldStop == true ? "‰∏äÈôêË∂ÖÈÅé" : "Ë≠¶Âëä");
+    var cosmosStatusClass = cosmosEnabled
+        ? (cosmos!.ShouldStop ? "text-danger" : (cosmos.ShouldWarn ? "text-warning" : "text-success"))
+        : "text-muted";
+    var cosmosTitle = cosmos?.Provisioning == FestivalManagementWeb.Models.CosmosProvisioningModel.VCore
+        ? "Cosmos DB (Mongo vCore)"
+        : "Cosmos DB (Mongo)";
     double? cosmosStorage = cosmos?.StorageGb.HasValue == true ? Math.Round(cosmos.StorageGb.Value, 2) : null;
     double? cosmosStorageLimit = cosmos?.FreeTierStorageLimitGb > 0 ? Math.Round(cosmos.FreeTierStorageLimitGb, 2) : null;
     double? cosmosStoragePct = cosmos?.StoragePercentOfLimit.HasValue == true ? Math.Round(cosmos.StoragePercentOfLimit.Value, 1) : null;
@@ -47,126 +47,98 @@ else if (Model != null && Model.Enabled)
     <div class="alert alert-info py-3 mb-0 free-tier-banner">
         <div class="container-fluid small">
             <div class="row g-3">
-                <div class="col-12 col-md-6 col-xl-3">
+                <div class="col-12 col-md-6 col-xl">
                     <section class="metric-card h-100">
-                        <h6 class="metric-title">â“ì≠éûä‘</h6>
+                        <h6 class="metric-title">Á®ºÂÉçÊôÇÈñì</h6>
                         <div class="metric-line">
-                            <span class="metric-label">écÇË / ì˙</span>
+                            <span class="metric-label">1Êó•„ÅÇ„Åü„Çä</span>
                             <span class="metric-value"><strong>@perDay</strong> h</span>
                         </div>
                         <div class="metric-line">
-                            <span class="metric-label">écÇËçáåv</span>
+                            <span class="metric-label">ÊÆã„ÇäÁ∑èÊôÇÈñì</span>
                             <span class="metric-value"><strong>@total</strong> h</span>
                         </div>
                         <div class="metric-line">
-                            <span class="metric-label">êÑíËâ“ì≠çœ</span>
+                            <span class="metric-label">Á¥ØË®à‰ΩøÁî®</span>
                             <span class="metric-value"><strong>@usedHours</strong> h</span>
                         </div>
-                        <p class="metric-footnote">@Model.DaysRemainingInMonth ì˙ï™ÇÃëzíËécó </p>
+                        <p class="metric-footnote">ÊÆã„Çä @Model.DaysRemainingInMonth Êó•</p>
                     </section>
                 </div>
-                <div class="col-12 col-md-6 col-xl-3">
+                <div class="col-12 col-md-6 col-xl">
                     <section class="metric-card h-100">
-                        <h6 class="metric-title">ÉäÉNÉGÉXÉg</h6>
+                        <h6 class="metric-title">„É™„ÇØ„Ç®„Çπ„Éà</h6>
                         <div class="metric-line">
-                            <span class="metric-label">égópó </span>
+                            <span class="metric-label">Á¥ØË®à</span>
                             <span class="metric-value"><strong>@reqUsed</strong> / <strong>@reqBudget</strong></span>
                         </div>
-                        <p class="metric-subline">@Math.Round(Model.RequestsUsedPercent, 1)% égóp</p>
+                        <p class="metric-subline">@Math.Round(Model.RequestsUsedPercent, 1)% Âà©Áî®</p>
                         <div class="metric-line">
-                            <span class="metric-label">écÇËçáåv</span>
+                            <span class="metric-label">ÊÆãÈáè</span>
                             <span class="metric-value"><strong>@reqRemain</strong></span>
                         </div>
                         <div class="metric-line">
-                            <span class="metric-label">écÇË / ì˙</span>
+                            <span class="metric-label">1Êó•„ÅÇ„Åü„Çä</span>
                             <span class="metric-value"><strong>@reqPerDay</strong></span>
                         </div>
                         @if (reqDailyCap > 0)
                         {
                             <div class="metric-line">
-                                <span class="metric-label">ç°ì˙</span>
-                                <span class="metric-value"><strong>@reqDailyUsed</strong> / <strong>@reqDailyCap</strong> (écÇË <strong>@reqDailyRemain</strong>)</span>
+                                <span class="metric-label">1Êó•‰∏äÈôê</span>
+                                <span class="metric-value"><strong>@reqDailyUsed</strong> / <strong>@reqDailyCap</strong> (ÊÆã @reqDailyRemain)</span>
                             </div>
                         }
                     </section>
                 </div>
-                <div class="col-12 col-md-6 col-xl-3">
+                <div class="col-12 col-md-6 col-xl">
                     <section class="metric-card h-100">
-                        <h6 class="metric-title">ÉRÉìÉsÉÖÅ[Ég</h6>
+                        <h6 class="metric-title">„Ç≥„É≥„Éî„É•„Éº„Éà</h6>
                         <div class="metric-line">
                             <span class="metric-label">CPU</span>
                             <span class="metric-value"><strong>@cpuUsed</strong> / <strong>@cpuBudget</strong> vCPU-s</span>
                         </div>
-                        <p class="metric-subline">@Math.Round(Model.CpuUsedPercent, 1)% égópÅE1ì˙écÇË <strong>@cpuPerDay</strong> vCPU-s</p>
+                        <p class="metric-subline">@Math.Round(Model.CpuUsedPercent, 1)% Âà©Áî®„Éª1Êó• @cpuPerDay vCPU-s</p>
                         <div class="metric-line">
-                            <span class="metric-label">ÉÅÉÇÉä</span>
+                            <span class="metric-label">„É°„É¢„É™</span>
                             <span class="metric-value"><strong>@memUsed</strong> / <strong>@memBudget</strong> GiB-s</span>
                         </div>
-                        <p class="metric-subline">@Math.Round(Model.MemUsedPercent, 1)% égópÅE1ì˙écÇË <strong>@memPerDay</strong> GiB-s</p>
+                        <p class="metric-subline">@Math.Round(Model.MemUsedPercent, 1)% Âà©Áî®„Éª1Êó• @memPerDay GiB-s</p>
                     </section>
                 </div>
-                <div class="col-12 col-md-6 col-xl-3">
+                <div class="col-12 col-md-6 col-xl">
                     <section class="metric-card h-100">
-                        <h6 class="metric-title">ÉfÅ[É^ì]ëó</h6>
+                        <h6 class="metric-title">„Éá„Éº„ÇøËª¢ÈÄÅ</h6>
                         <div class="metric-line">
-                            <span class="metric-label">égópó </span>
+                            <span class="metric-label">Á¥ØË®à</span>
                             <span class="metric-value"><strong>@dataUsed</strong> / <strong>@dataBudget</strong> GB</span>
                         </div>
-                        <p class="metric-subline">@Math.Round(Model.DataUsedPercent, 1)% égóp</p>
+                        <p class="metric-subline">@Math.Round(Model.DataUsedPercent, 1)% Âà©Áî®</p>
                         <div class="metric-line">
-                            <span class="metric-label">écÇËçáåv</span>
+                            <span class="metric-label">ÊÆãÈáè</span>
                             <span class="metric-value"><strong>@dataRemain</strong> GB</span>
                         </div>
                         <div class="metric-line">
-                            <span class="metric-label">écÇË / ì˙</span>
+                            <span class="metric-label">1Êó•„ÅÇ„Åü„Çä</span>
                             <span class="metric-value"><strong>@dataPerDay</strong> GB</span>
                         </div>
-                        <p class="metric-footnote">çXêV: @updatedAt</p>
+                        <p class="metric-footnote">ÊúÄÁµÇÊõ¥Êñ∞: @updatedAt</p>
                     </section>
                 </div>
-                @if (cosmosEnabled)
-                {
-                    var cosmosTitle = cosmos!.Provisioning == FestivalManagementWeb.Models.CosmosProvisioningModel.VCore
-                        ? "Cosmos DB (Mongo vCore)"
-                        : "Cosmos DB (Mongo)";
-
-                    <div class="col-12 col-md-6 col-xl-3">
-                        <section class="metric-card h-100">
-                            <h6 class="metric-title">@cosmosTitle</h6>
+                <div class="col-12 col-md-6 col-xl">
+                    <section class="metric-card h-100">
+                        <h6 class="metric-title">@cosmosTitle</h6>
+                        <div class="metric-line">
+                            <span class="metric-label">„Çπ„ÉÜ„Éº„Çø„Çπ</span>
+                            <span class="metric-value @cosmosStatusClass"><strong>@(cosmosEnabled ? cosmosStateText : "Áõ£Ë¶ñÁÑ°Âäπ")</strong></span>
+                        </div>
+                        @if (cosmosEnabled)
+                        {
                             <div class="metric-line">
-                                <span class="metric-label">ñ≥óøòg</span>
-                                <span class="metric-value @cosmosStatusClass"><strong>@cosmosStateText</strong></span>
+                                <span class="metric-label">ÁÑ°ÊñôÊû†</span>
+                                <span class="metric-value">@((cosmos!.FreeTierActive == true) ? "ÊúâÂäπ" : (cosmos.FreeTierActive == false ? "ÁÑ°Âäπ" : "‰∏çÊòé"))</span>
                             </div>
                             <div class="metric-line">
-                                <span class="metric-label">ñ≥óøògê›íË</span>
-                                <span class="metric-value">@((cosmos!.FreeTierActive == true) ? "óLå¯" : (cosmos.FreeTierActive == false ? "ñ≥å¯" : "ïsñæ"))</span>
-                            </div>
-                            @if (cosmos.Provisioning == FestivalManagementWeb.Models.CosmosProvisioningModel.RequestUnits)
-                            {
-                                <div class="metric-line">
-                                    <span class="metric-label">ÉXÉãÅ[ÉvÉbÉg</span>
-                                    <span class="metric-value">
-                                        @if (cosmosRu.HasValue && cosmosRuLimit.HasValue)
-                                        {
-                                            <text><strong>@cosmosRu.Value</strong> / <strong>@cosmosRuLimit.Value</strong> RU/s</text>
-                                        }
-                                        else if (cosmosRu.HasValue)
-                                        {
-                                            <text><strong>@cosmosRu.Value</strong> RU/s</text>
-                                        }
-                                        else
-                                        {
-                                            <text><span class="text-muted">åvë™íÜ</span></text>
-                                        }
-                                    </span>
-                                </div>
-                                @if (cosmosRuPct.HasValue)
-                                {
-                                    <p class="metric-subline">@cosmosRuPct.Value% égóp</p>
-                                }
-                            }
-                            <div class="metric-line">
-                                <span class="metric-label">ï€ë∂óeó </span>
+                                <span class="metric-label">‰øùÂ≠òÂÆπÈáè</span>
                                 <span class="metric-value">
                                     @if (cosmosStorage.HasValue && cosmosStorageLimit.HasValue)
                                     {
@@ -178,22 +150,13 @@ else if (Model != null && Model.Enabled)
                                     }
                                     else
                                     {
-                                        <text><span class="text-muted">åvë™íÜ</span></text>
+                                        <text><span class="text-muted">ÂèñÂæó‰∏≠</span></text>
                                     }
                                 </span>
                             </div>
                             @if (cosmosStoragePct.HasValue)
                             {
-                                <p class="metric-subline">@cosmosStoragePct.Value% égóp</p>
-                            }
-                            @if (cosmos.RuBreakdown?.Count > 0)
-                            {
-                                <ul class="metric-footnote list-unstyled mb-2">
-                                    @foreach (var ru in cosmos.RuBreakdown)
-                                    {
-                                        <li>@ru.Scope: @Math.Round(ru.Throughput) RU/s</li>
-                                    }
-                                </ul>
+                                <p class="metric-subline">@cosmosStoragePct.Value% Âà©Áî®</p>
                             }
                             @if (!string.IsNullOrEmpty(cosmos.Error))
                             {
@@ -214,25 +177,22 @@ else if (Model != null && Model.Enabled)
                             }
                             @if (!string.IsNullOrEmpty(cosmosUpdated))
                             {
-                                <p class="metric-footnote">çXêV: @cosmosUpdated</p>
+                                <p class="metric-footnote">ÊúÄÁµÇÊõ¥Êñ∞: @cosmosUpdated</p>
                             }
                             @if (cosmos.ShouldStop)
                             {
                                 <p class="metric-footnote text-danger">
-                                    <a class="text-danger text-decoration-underline" asp-controller="FreeTier" asp-action="CapacityLimit">óeó í¥âﬂÇÃëŒâûï˚ñ@Çå©ÇÈ</a>
+                                    <a class="text-danger text-decoration-underline" asp-controller="FreeTier" asp-action="CapacityLimit">ÂØæÂá¶ÊñπÊ≥ï„ÇíË¶ã„Çã</a>
                                 </p>
                             }
-                        </section>
-                    </div>
-                }
+                        }
+                        else
+                        {
+                            <p class="metric-footnote text-muted mb-0">appsettings „ÅÆ FreeTier:Cosmos „ÇíÊúâÂäπ„Å´„Åô„Çã„Å® Cosmos „ÅÆ‰ΩøÁî®Èáè„ÅåË°®Á§∫„Åï„Çå„Åæ„Åô„ÄÇ</p>
+                        }
+                    </section>
+                </div>
             </div>
         </div>
     </div>
 }
-
-
-
-
-
-
-

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using FestivalManagementWeb.Models;
 using Microsoft.Extensions.Options;
 
@@ -129,14 +129,14 @@ namespace FestivalManagementWeb.Services
                 AccountName = settings.Cosmos.AccountName,
                 DatabaseName = settings.Cosmos.DatabaseName,
                 Provisioning = settings.Cosmos.Provisioning,
-                FreeTierRuLimit = settings.Cosmos.FreeTierRuLimit,
                 FreeTierStorageLimitGb = settings.Cosmos.Provisioning == CosmosProvisioningModel.VCore
                     ? settings.Cosmos.FreeTierVCoreStorageGb
                     : settings.Cosmos.FreeTierStorageGb,
-                WithinRuLimit = settings.Cosmos.Provisioning == CosmosProvisioningModel.RequestUnits ? null : true,
                 Warning = "Cosmos DB free-tier status is being refreshed..."
             };
         }
     }
 }
+
+
 

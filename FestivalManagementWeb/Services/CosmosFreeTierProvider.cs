@@ -1,6 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -12,6 +10,7 @@ using Azure.Identity;
 using FestivalManagementWeb.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Linq;
 
 namespace FestivalManagementWeb.Services
 {
@@ -57,7 +56,6 @@ namespace FestivalManagementWeb.Services
                 AccountName = settings.AccountName,
                 DatabaseName = settings.DatabaseName,
                 Provisioning = settings.Provisioning,
-                FreeTierRuLimit = settings.FreeTierRuLimit,
                 FreeTierStorageLimitGb = settings.Provisioning == CosmosProvisioningModel.VCore
                     ? settings.FreeTierVCoreStorageGb
                     : settings.FreeTierStorageGb,
@@ -110,7 +108,8 @@ namespace FestivalManagementWeb.Services
                 throw new InvalidOperationException("Cosmos free-tier check requires AccountResourceId or SubscriptionId/ResourceGroup/AccountName.");
             }
 
-            return $"/subscriptions/{subscriptionId}/resourceGroups/{settings.ResourceGroup}/providers/Microsoft.DocumentDB/databaseAccounts/{settings.AccountName}";
+            var resourceType = settings.Provisioning == CosmosProvisioningModel.VCore ? "mongoClusters" : "databaseAccounts";
+            return $"/subscriptions/{subscriptionId}/resourceGroups/{settings.ResourceGroup}/providers/Microsoft.DocumentDB/{resourceType}/{settings.AccountName}";
         }
 
         private async Task PopulateStatusAsync(CosmosFreeTierStatus status, CosmosFreeTierSettings settings, string accountResourceId, string token, CancellationToken ct)
@@ -136,34 +135,24 @@ namespace FestivalManagementWeb.Services
                 status.AddIssue("Free tier is not enabled on the Cosmos DB account.");
             }
 
-            if (settings.Provisioning == CosmosProvisioningModel.RequestUnits)
-            {
-                await PopulateThroughputAsync(status, settings, accountResourceId, token, ct).ConfigureAwait(false);
-            }
-
             await PopulateStorageAsync(status, settings, accountResourceId, token, ct).ConfigureAwait(false);
 
-            var evaluateRuLimit = settings.Provisioning == CosmosProvisioningModel.RequestUnits;
-
-            if (!evaluateRuLimit)
-            {
-                status.WithinRuLimit ??= true;
-            }
-
             status.OverallWithinFreeTier = status.FreeTierActive != false
-                                           && (!evaluateRuLimit || status.WithinRuLimit != false)
                                            && status.WithinStorageLimit != false;
 
             if (status.ShouldStop)
             {
                 status.ShouldWarn = true;
             }
-
-
         }
 
         private static void ParseAccountMetadata(CosmosFreeTierStatus status, JsonElement root)
         {
+            if (status.ApiIsMongo != true && status.Provisioning == CosmosProvisioningModel.VCore)
+            {
+                status.ApiIsMongo = true;
+            }
+
             if (root.TryGetProperty("properties", out var properties))
             {
                 if (properties.TryGetProperty("enableFreeTier", out var enableFreeTier) && enableFreeTier.ValueKind == JsonValueKind.True)
@@ -196,6 +185,18 @@ namespace FestivalManagementWeb.Services
                         }
                     }
                 }
+
+                if (status.FreeTierActive == null && status.Provisioning == CosmosProvisioningModel.VCore && properties.TryGetProperty("compute", out var compute) && compute.ValueKind == JsonValueKind.Object)
+                {
+                    if (compute.TryGetProperty("tier", out var tierElement) && tierElement.ValueKind == JsonValueKind.String)
+                    {
+                        var tier = tierElement.GetString();
+                        if (!string.IsNullOrWhiteSpace(tier) && tier.Equals("Free", StringComparison.OrdinalIgnoreCase))
+                        {
+                            status.FreeTierActive = true;
+                        }
+                    }
+                }
             }
 
             if (status.ApiIsMongo != true && root.TryGetProperty("kind", out var kindElement))
@@ -205,70 +206,6 @@ namespace FestivalManagementWeb.Services
                 {
                     status.ApiIsMongo = true;
                 }
-            }
-        }
-
-        private async Task PopulateThroughputAsync(CosmosFreeTierStatus status, CosmosFreeTierSettings settings, string accountResourceId, string token, CancellationToken ct)
-        {
-            if (string.IsNullOrWhiteSpace(settings.DatabaseName))
-            {
-                status.Warning ??= "Cosmos throughput check skipped (DatabaseName not configured).";
-                return;
-            }
-
-            double totalRu = 0;
-            var observed = false;
-
-            var dbThroughput = await GetThroughputAsync(
-                $"{ManagementEndpoint}{accountResourceId}/mongodbDatabases/{settings.DatabaseName}/throughputSettings/default?api-version={AccountApiVersion}",
-                token,
-                ct).ConfigureAwait(false);
-
-            if (dbThroughput.HasValue)
-            {
-                totalRu += dbThroughput.Value;
-                observed = true;
-                status.AddRuComponent($"{settings.DatabaseName} (DB)", dbThroughput.Value);
-            }
-
-            var collectionNames = await ResolveCollectionNamesAsync(settings, accountResourceId, token, ct).ConfigureAwait(false);
-            foreach (var coll in collectionNames)
-            {
-                var throughput = await GetThroughputAsync(
-                    $"{ManagementEndpoint}{accountResourceId}/mongodbDatabases/{settings.DatabaseName}/collections/{coll}/throughputSettings/default?api-version={AccountApiVersion}",
-                    token,
-                    ct).ConfigureAwait(false);
-                if (throughput.HasValue)
-                {
-                    totalRu += throughput.Value;
-                    observed = true;
-                    status.AddRuComponent($"{coll} (Collection)", throughput.Value);
-                }
-            }
-
-            if (observed)
-            {
-                status.ProvisionedRu = totalRu;
-                if (status.FreeTierRuLimit > 0)
-                {
-                    status.RuPercentOfLimit = Math.Round((totalRu / status.FreeTierRuLimit) * 100, 2);
-                    status.WithinRuLimit = totalRu <= status.FreeTierRuLimit + 0.0001;
-
-                    if (status.WithinRuLimit == false)
-                    {
-                        status.ShouldStop = true;
-                        status.AddIssue($"Provisioned throughput {totalRu} RU/s exceeds free-tier allowance {status.FreeTierRuLimit} RU/s.");
-                    }
-                    else if (settings.WarnRuPercent.HasValue && status.RuPercentOfLimit.HasValue && status.RuPercentOfLimit.Value >= settings.WarnRuPercent.Value)
-                    {
-                        status.ShouldWarn = true;
-                        status.AddIssue($"Provisioned throughput is at {status.RuPercentOfLimit}% of the free-tier allowance.");
-                    }
-                }
-            }
-            else
-            {
-                status.Warning ??= "Cosmos throughput not found (shared throughput not reported).";
             }
         }
 
@@ -301,47 +238,6 @@ namespace FestivalManagementWeb.Services
             }
         }
 
-        private async Task<IReadOnlyCollection<string>> ResolveCollectionNamesAsync(CosmosFreeTierSettings settings, string accountResourceId, string token, CancellationToken ct)
-        {
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var configured in settings.CollectionNames ?? Array.Empty<string>())
-            {
-                if (!string.IsNullOrWhiteSpace(configured))
-                {
-                    names.Add(configured.Trim());
-                }
-            }
-
-            using var listDoc = await GetJsonAsync(
-                $"{ManagementEndpoint}{accountResourceId}/mongodbDatabases/{settings.DatabaseName}/collections?api-version={AccountApiVersion}",
-                token,
-                ct).ConfigureAwait(false);
-
-            if (listDoc != null && listDoc.RootElement.TryGetProperty("value", out var valueArray))
-            {
-                foreach (var item in valueArray.EnumerateArray())
-                {
-                    if (item.ValueKind != JsonValueKind.Object) continue;
-                    if (item.TryGetProperty("properties", out var props) && props.ValueKind == JsonValueKind.Object)
-                    {
-                        if (props.TryGetProperty("resource", out var resource) && resource.ValueKind == JsonValueKind.Object)
-                        {
-                            if (resource.TryGetProperty("id", out var idElement))
-                            {
-                                var id = idElement.GetString();
-                                if (!string.IsNullOrWhiteSpace(id))
-                                {
-                                    names.Add(id);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            return names;
-        }
-
         private async Task<JsonDocument?> GetJsonAsync(string requestUri, string token, CancellationToken ct)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
@@ -357,38 +253,19 @@ namespace FestivalManagementWeb.Services
             return await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         }
 
-        private async Task<double?> GetThroughputAsync(string requestUri, string token, CancellationToken ct)
-        {
-            using var doc = await GetJsonAsync(requestUri, token, ct).ConfigureAwait(false);
-            if (doc == null)
-            {
-                return null;
-            }
-
-            if (doc.RootElement.TryGetProperty("properties", out var props) && props.ValueKind == JsonValueKind.Object)
-            {
-                if (props.TryGetProperty("resource", out var resource) && resource.ValueKind == JsonValueKind.Object)
-                {
-                    if (resource.TryGetProperty("throughput", out var throughputElement) && throughputElement.TryGetDouble(out var throughput))
-                    {
-                        return throughput;
-                    }
-                }
-            }
-
-            return null;
-        }
-
         private async Task<double?> GetStorageGbAsync(string accountResourceId, CosmosFreeTierSettings settings, string token, CancellationToken ct)
         {
             var end = DateTime.UtcNow;
             var start = end.AddHours(-6);
             var timespan = Uri.EscapeDataString($"{start:O}/{end:O}");
+            var isVCore = settings.Provisioning == CosmosProvisioningModel.VCore;
+            var defaultNamespace = isVCore ? "microsoft.documentdb/mongoClusters" : "microsoft.documentdb/databaseaccounts";
             var metricNamespace = string.IsNullOrWhiteSpace(settings.MetricNamespace)
-                ? "microsoft.documentdb/databaseaccounts"
+                ? defaultNamespace
                 : settings.MetricNamespace;
+            var metricName = isVCore ? "StorageUsed" : "TotalAccountStorage";
 
-            var uri = $"{ManagementEndpoint}{accountResourceId}/providers/microsoft.insights/metrics?metricnames=TotalAccountStorage&aggregation=Maximum&timespan={timespan}&interval=PT1H&metricnamespace={Uri.EscapeDataString(metricNamespace)}&api-version={MetricsApiVersion}";
+            var uri = $"{ManagementEndpoint}{accountResourceId}/providers/microsoft.insights/metrics?metricnames={metricName}&aggregation=Maximum&timespan={timespan}&interval=PT1H&metricnamespace={Uri.EscapeDataString(metricNamespace)}&api-version={MetricsApiVersion}";
 
             using var metricsDoc = await GetJsonAsync(uri, token, ct).ConfigureAwait(false);
             if (metricsDoc == null)
@@ -418,7 +295,6 @@ namespace FestivalManagementWeb.Services
 
                             if (candidate.HasValue)
                             {
-                                // Metric is reported in bytes.
                                 return candidate.Value / 1_073_741_824d;
                             }
                         }
@@ -447,5 +323,3 @@ namespace FestivalManagementWeb.Services
         }
     }
 }
-
-
