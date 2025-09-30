@@ -175,12 +175,12 @@ static async Task RunAsync()
     var costClient = new MetricsQueryClient(credential);
     var costResponse = await costClient.QueryResourceAsync(
         resourceId,
-        new[] { "CpuUsage", "MemoryUsage" },
+        new[] { "UsageNanoCores", "WorkingSetBytes" },
         new MetricsQueryOptions
         {
             Granularity = TimeSpan.FromHours(1),
             TimeRange = new QueryTimeRange(start, utcNow),
-            Aggregations = { MetricAggregationType.Total }
+            Aggregations = { MetricAggregationType.Average }
         });
 
     MetricsQueryResult costResult = costResponse.Value;
@@ -195,12 +195,15 @@ static async Task RunAsync()
 
         return metric.TimeSeries
             .SelectMany(ts => ts.Values)
-            .Where(point => point.Total.HasValue)
-            .Sum(point => point.Total!.Value);
+            .Where(point => point.Average.HasValue)
+            .Sum(point => point.Average!.Value);
     }
 
-    double vcpuSeconds = SumCost("CpuUsage");
-    double gibSeconds = SumCost("MemoryUsage");
+    double nanoCoreHours = SumCost("UsageNanoCores");
+    double byteHours = SumCost("WorkingSetBytes");
+
+    double vcpuSeconds = nanoCoreHours * 3600 / 1_000_000_000;
+    double gibSeconds = byteHours * 3600 / 1_073_741_824;
 
     Console.WriteLine($"MTD vCPU-s={vcpuSeconds}, GiB-s={gibSeconds}");
 
