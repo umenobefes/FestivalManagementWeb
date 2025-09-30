@@ -83,6 +83,9 @@ resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' = {
     storage: {
       sizeGb: 32
     }
+    sharding: {
+      shardCount: 1
+    }
     serverVersion: '7.0'
     highAvailability: {
       targetMode: 'Disabled'
