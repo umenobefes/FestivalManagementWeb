@@ -44,6 +44,7 @@ param gitAuthorEmail string
 param gitToken string
 
 @description('Git clone URL')
+@secure()
 param gitCloneUrl string
 
 @description('MongoDB admin password')
@@ -103,9 +104,6 @@ resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRu
   }
 }
 
-// Variables for connection strings
-var mongoConnectionString = 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosDbAccountName}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
-
 // Container App
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
@@ -119,7 +117,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       secrets: [
         {
           name: 'mongo-connection-string'
-          value: mongoConnectionString
+          value: 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosDbAccountName}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
         }
         {
           name: 'google-client-id'

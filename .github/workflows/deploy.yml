@@ -174,65 +174,61 @@ jobs:
         docker push $TARGET_IMAGE:latest
 
     - name: Deploy infrastructure (Cosmos DB + Environment)
-      uses: azure/arm-deploy@v2
       id: deploy-infrastructure
-      with:
-        scope: resourcegroup
-        subscriptionId: ${{ env.SUBSCRIPTION_ID }}
-        resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
-        template: infra/infrastructure.bicep
-        parameters: >
-          namePrefix=${{ steps.extract-params.outputs.name-prefix }}
-          location=${{ steps.extract-params.outputs.location }}
-          mongoAdminPassword=${{ steps.extract-secrets.outputs.mongo-admin-password }}
-        deploymentName: infra-${{ github.run_number }}-${{ github.run_attempt }}
-        failOnStdErr: false
+      run: |
+        echo "Deploying infrastructure..."
+        az deployment group create \
+          --name "infra-${{ github.run_number }}-${{ github.run_attempt }}" \
+          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
+          --template-file infra/infrastructure.bicep \
+          --parameters namePrefix="${{ steps.extract-params.outputs.name-prefix }}" \
+          --parameters location="${{ steps.extract-params.outputs.location }}" \
+          --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
+          --output json > infra-output.json
+
+        ENV_ID=$(jq -r '.properties.outputs.environmentId.value' infra-output.json)
+        COSMOS_NAME=$(jq -r '.properties.outputs.cosmosDbAccountName.value' infra-output.json)
+
+        echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
+        echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
 
     - name: Deploy application (Container App)
-      uses: azure/arm-deploy@v2
       id: deploy-application
-      with:
-        scope: resourcegroup
-        subscriptionId: ${{ env.SUBSCRIPTION_ID }}
-        resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
-        template: infra/application.bicep
-        parameters: >
-          containerAppName=${{ steps.extract-params.outputs.image-name }}
-          location=${{ steps.extract-params.outputs.location }}
-          environmentId=${{ steps.deploy-infrastructure.outputs.environmentId }}
-          cosmosDbAccountName=${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
-          imageTag=latest
-          containerRegistryServer=${{ steps.extract-params.outputs.container-registry-server }}
-          containerRegistryRepository=${{ steps.extract-params.outputs.container-registry-repository }}
-          googleClientId=${{ steps.extract-secrets.outputs.google-client-id }}
-          googleClientSecret=${{ steps.extract-secrets.outputs.google-client-secret }}
-          initialUserEmail=${{ steps.extract-secrets.outputs.initial-user-email }}
-          mongoAdminPassword=${{ steps.extract-secrets.outputs.mongo-admin-password }}
-          gitAuthorName=${{ steps.extract-secrets.outputs.git-author-name }}
-          gitAuthorEmail=${{ steps.extract-secrets.outputs.git-author-email }}
-          gitToken=${{ steps.extract-secrets.outputs.git-token }}
-          gitCloneUrl=${{ steps.extract-secrets.outputs.git-clone-url }}
-          subscriptionId=${{ env.SUBSCRIPTION_ID }}
-          resourceGroupName=${{ steps.extract-params.outputs.resource-group }}
-        deploymentName: app-${{ github.run_number }}-${{ github.run_attempt }}
-        failOnStdErr: false
-
-    - name: Get deployment outputs
-      id: get-outputs
       run: |
-        CONTAINER_APP_URL="${{ steps.deploy-application.outputs.containerAppUrl }}"
-        PRINCIPAL_ID="${{ steps.deploy-application.outputs.containerAppPrincipalId }}"
+        echo "Deploying application..."
+        az deployment group create \
+          --name "app-${{ github.run_number }}-${{ github.run_attempt }}" \
+          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
+          --template-file infra/application.bicep \
+          --parameters containerAppName="${{ steps.extract-params.outputs.image-name }}" \
+          --parameters location="${{ steps.extract-params.outputs.location }}" \
+          --parameters environmentId="${{ steps.deploy-infrastructure.outputs.environmentId }}" \
+          --parameters cosmosDbAccountName="${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}" \
+          --parameters imageTag="latest" \
+          --parameters containerRegistryServer="${{ steps.extract-params.outputs.container-registry-server }}" \
+          --parameters containerRegistryRepository="${{ steps.extract-params.outputs.container-registry-repository }}" \
+          --parameters googleClientId="${{ steps.extract-secrets.outputs.google-client-id }}" \
+          --parameters googleClientSecret="${{ steps.extract-secrets.outputs.google-client-secret }}" \
+          --parameters initialUserEmail="${{ steps.extract-secrets.outputs.initial-user-email }}" \
+          --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
+          --parameters gitAuthorName="${{ steps.extract-secrets.outputs.git-author-name }}" \
+          --parameters gitAuthorEmail="${{ steps.extract-secrets.outputs.git-author-email }}" \
+          --parameters gitToken="${{ steps.extract-secrets.outputs.git-token }}" \
+          --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}" \
+          --parameters subscriptionId="${{ env.SUBSCRIPTION_ID }}" \
+          --parameters resourceGroupName="${{ steps.extract-params.outputs.resource-group }}" \
+          --output json > app-output.json
 
-        echo "Container App URL: $CONTAINER_APP_URL"
-        echo "Principal ID: $PRINCIPAL_ID"
+        APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' app-output.json)
+        PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' app-output.json)
 
-        echo "containerAppUrl=$CONTAINER_APP_URL" >> $GITHUB_OUTPUT
-        echo "principalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
+        echo "containerAppUrl=$APP_URL" >> $GITHUB_OUTPUT
+        echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
 
     - name: Assign roles to Container App managed identity
       continue-on-error: true
       run: |
-        PRINCIPAL_ID="${{ steps.get-outputs.outputs.principalId }}"
+        PRINCIPAL_ID="${{ steps.deploy-application.outputs.containerAppPrincipalId }}"
         RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
 
         if [ -z "$PRINCIPAL_ID" ] || [ "$PRINCIPAL_ID" = "null" ]; then
@@ -272,5 +268,5 @@ jobs:
 
     - name: Output application URL
       run: |
-        echo "Application deployed to: ${{ steps.get-outputs.outputs.containerAppUrl }}"
+        echo "Application deployed to: ${{ steps.deploy-application.outputs.containerAppUrl }}"
 
