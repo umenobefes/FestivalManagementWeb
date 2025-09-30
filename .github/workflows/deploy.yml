@@ -161,33 +161,39 @@ jobs:
         echo "principalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
 
     - name: Assign roles to Container App managed identity
+      continue-on-error: true
       run: |
         PRINCIPAL_ID="${{ steps.deploy-infra.outputs.principalId }}"
         RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
 
-        # Wait for managed identity to propagate
+        if [ -z "$PRINCIPAL_ID" ] || [ "$PRINCIPAL_ID" = "null" ]; then
+          echo "Warning: Principal ID not found, skipping role assignments"
+          exit 0
+        fi
+
+        echo "Waiting for managed identity to propagate..."
         sleep 30
 
-        # Assign Reader role on resource group
+        echo "Assigning Reader role..."
         az role assignment create \
           --assignee "$PRINCIPAL_ID" \
           --role "Reader" \
           --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP" \
-          --output none || true
+          2>&1 | grep -v "already exists" || true
 
-        # Assign Monitoring Reader role on resource group
+        echo "Assigning Monitoring Reader role..."
         az role assignment create \
           --assignee "$PRINCIPAL_ID" \
           --role "Monitoring Reader" \
           --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP" \
-          --output none || true
+          2>&1 | grep -v "already exists" || true
 
-        # Assign Cost Management Reader role on subscription
+        echo "Assigning Cost Management Reader role..."
         az role assignment create \
           --assignee "$PRINCIPAL_ID" \
           --role "Cost Management Reader" \
           --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" \
-          --output none || true
+          2>&1 | grep -v "already exists" || true
 
         echo "Role assignments completed"
 
