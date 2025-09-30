@@ -137,7 +137,9 @@ jobs:
       id: deploy-infra
       run: |
         DEPLOYMENT_NAME="deploy-$(date +%s)"
-        OUTPUT=$(az deployment group create \
+
+        # Deploy without capturing output first
+        az deployment group create \
           --name "$DEPLOYMENT_NAME" \
           --resource-group ${{ steps.extract-params.outputs.resource-group }} \
           --template-file infra/main.bicep \
@@ -151,12 +153,21 @@ jobs:
           --parameters gitAuthorName="${{ steps.extract-secrets.outputs.git-author-name }}" \
           --parameters gitAuthorEmail="${{ steps.extract-secrets.outputs.git-author-email }}" \
           --parameters gitToken="${{ steps.extract-secrets.outputs.git-token }}" \
-          --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}" \
-          --query 'properties.outputs' \
-          --output json)
+          --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}"
 
-        CONTAINER_APP_URL=$(echo "$OUTPUT" | jq -r '.containerAppUrl.value')
-        PRINCIPAL_ID=$(echo "$OUTPUT" | jq -r '.containerAppPrincipalId.value')
+        # Get outputs in separate command
+        CONTAINER_APP_URL=$(az deployment group show \
+          --name "$DEPLOYMENT_NAME" \
+          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
+          --query 'properties.outputs.containerAppUrl.value' \
+          --output tsv)
+
+        PRINCIPAL_ID=$(az deployment group show \
+          --name "$DEPLOYMENT_NAME" \
+          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
+          --query 'properties.outputs.containerAppPrincipalId.value' \
+          --output tsv)
+
         echo "containerAppUrl=$CONTAINER_APP_URL" >> $GITHUB_OUTPUT
         echo "principalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
 
