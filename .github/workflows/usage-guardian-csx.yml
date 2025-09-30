@@ -48,9 +48,10 @@ jobs:
           echo "COSMOS_STOP_STORAGE_PCT=$(jq -r '.cosmos.stopStoragePercent' infra/thresholds.json)" >> $GITHUB_ENV
 
           # Predict Cosmos DB account name from Bicep pattern
+          RESOURCE_GROUP="rg-${NAME_PREFIX}"
           echo "COSMOS_ACCOUNT_NAME=${NAME_PREFIX}-cosmos" >> $GITHUB_ENV
           echo "COSMOS_RESOURCE_GROUP=${RESOURCE_GROUP}" >> $GITHUB_ENV
-          echo "COSMOS_SUBSCRIPTION_ID=${SUBSCRIPTION_ID}" >> $GITHUB_ENV
+          echo "COSMOS_SUBSCRIPTION_ID=${{ env.SUBSCRIPTION_ID }}" >> $GITHUB_ENV
           echo "COSMOS_DATABASE_NAME=FestivalManagement" >> $GITHUB_ENV
           echo "COSMOS_COLLECTION_NAMES=TextKeyValues,ImageKeyValues" >> $GITHUB_ENV
           echo "COSMOS_PROVISIONING=vCore" >> $GITHUB_ENV
