@@ -347,6 +347,9 @@ resource containerAppResourceGroupReader 'Microsoft.Authorization/roleAssignment
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
   }
+  dependsOn: [
+    containerApp
+  ]
 }
 
 resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -357,16 +360,22 @@ resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43ffd8ad-0a53-4d32-b4f2-2184e67fc42a')
   }
+  dependsOn: [
+    containerAppResourceGroupReader
+  ]
 }
 
 module containerAppCostReader './roleAssignment.bicep' = {
-  name: 'containerAppCostReader'
+  name: 'containerAppCostReader-${uniqueString(resourceGroup().id)}'
   scope: subscription()
   params: {
     principalId: containerApp.identity.principalId
     roleDefinitionId: '72d43a3d-b78b-415c-90f0-5ee7a6db6b4b'
     principalType: 'ServicePrincipal'
   }
+  dependsOn: [
+    containerAppMonitoringReader
+  ]
 }
 
 // Outputs
