@@ -176,43 +176,81 @@ jobs:
     - name: Deploy infrastructure (Cosmos DB + Environment)
       id: deploy-infrastructure
       run: |
-        echo "Deploying infrastructure..."
-        az deployment group create \
-          --name "infra-${{ github.run_number }}-${{ github.run_attempt }}" \
-          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --template-file infra/infrastructure.bicep \
-          --parameters namePrefix="${{ steps.extract-params.outputs.name-prefix }}" \
-          --parameters location="${{ steps.extract-params.outputs.location }}" \
-          --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
-          --output json > infra-output.json
+        RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
+        NAME_PREFIX="${{ steps.extract-params.outputs.name-prefix }}"
+        ENV_NAME="${NAME_PREFIX}-env"
+        COSMOS_NAME="${NAME_PREFIX}-cosmos"
 
-        ENV_ID=$(jq -r '.properties.outputs.environmentId.value' infra-output.json)
-        COSMOS_NAME=$(jq -r '.properties.outputs.cosmosDbAccountName.value' infra-output.json)
+        # Check if infrastructure already exists
+        ENV_EXISTS=false
+        COSMOS_EXISTS=false
+
+        if az containerapp env show --name "$ENV_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+          echo "Container Apps Environment already exists: $ENV_NAME"
+          ENV_EXISTS=true
+        fi
+
+        if az cosmosdb mongocluster show --name "$COSMOS_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+          echo "Cosmos DB already exists: $COSMOS_NAME"
+          COSMOS_EXISTS=true
+        fi
+
+        # Only deploy if something is missing
+        if [ "$ENV_EXISTS" = false ] || [ "$COSMOS_EXISTS" = false ]; then
+          echo "Deploying missing infrastructure..."
+          az deployment group create \
+            --name "infra-${{ github.run_number }}-${{ github.run_attempt }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/infrastructure.bicep \
+            --parameters namePrefix="$NAME_PREFIX" \
+            --parameters location="${{ steps.extract-params.outputs.location }}" \
+            --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
+            --output json > infra-output.json
+
+          ENV_ID=$(jq -r '.properties.outputs.environmentId.value' infra-output.json)
+          COSMOS_NAME=$(jq -r '.properties.outputs.cosmosDbAccountName.value' infra-output.json)
+        else
+          echo "All infrastructure already exists, skipping deployment"
+          ENV_ID=$(az containerapp env show --name "$ENV_NAME" --resource-group "$RESOURCE_GROUP" --query "id" -o tsv)
+        fi
 
         echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
         echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
 
-    - name: Deploy application (Container App - minimal)
+    - name: Deploy or update Container App
       id: deploy-application
       run: |
-        echo "Deploying minimal Container App..."
-        az deployment group create \
-          --name "app-${{ github.run_number }}-${{ github.run_attempt }}" \
-          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --template-file infra/application.bicep \
-          --parameters containerAppName="${{ steps.extract-params.outputs.image-name }}" \
-          --parameters location="${{ steps.extract-params.outputs.location }}" \
-          --parameters environmentId="${{ steps.deploy-infrastructure.outputs.environmentId }}" \
-          --parameters cosmosDbAccountName="${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}" \
-          --parameters imageTag="latest" \
-          --parameters containerRegistryServer="${{ steps.extract-params.outputs.container-registry-server }}" \
-          --parameters containerRegistryRepository="${{ steps.extract-params.outputs.container-registry-repository }}" \
-          --output json > app-output.json
+        APP_NAME="${{ steps.extract-params.outputs.image-name }}"
+        RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
+        IMAGE="${{ steps.extract-params.outputs.container-registry-server }}/${{ steps.extract-params.outputs.container-registry-repository }}:latest"
 
-        APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' app-output.json)
-        PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' app-output.json)
+        # Check if Container App exists
+        if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+          echo "Container App exists, updating image..."
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE"
+        else
+          echo "Container App does not exist, creating via Bicep..."
+          az deployment group create \
+            --name "app-${{ github.run_number }}-${{ github.run_attempt }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/application.bicep \
+            --parameters containerAppName="$APP_NAME" \
+            --parameters location="${{ steps.extract-params.outputs.location }}" \
+            --parameters environmentId="${{ steps.deploy-infrastructure.outputs.environmentId }}" \
+            --parameters cosmosDbAccountName="${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}" \
+            --parameters imageTag="latest" \
+            --parameters containerRegistryServer="${{ steps.extract-params.outputs.container-registry-server }}" \
+            --parameters containerRegistryRepository="${{ steps.extract-params.outputs.container-registry-repository }}"
+        fi
 
-        echo "containerAppUrl=$APP_URL" >> $GITHUB_OUTPUT
+        # Get Container App details
+        APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
+        PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
+
+        echo "containerAppUrl=https://$APP_URL" >> $GITHUB_OUTPUT
         echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
 
     - name: Configure Container App secrets and environment
