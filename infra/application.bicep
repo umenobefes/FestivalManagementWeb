@@ -1,25 +1,22 @@
 @description('Location for all resources')
 param location string = resourceGroup().location
 
-@description('Name prefix for all resources')
-param namePrefix string
+@description('Container App name')
+param containerAppName string
+
+@description('Environment ID')
+param environmentId string
+
+@description('Cosmos DB account name')
+param cosmosDbAccountName string
 
 @description('Container image tag')
 param imageTag string = 'latest'
 
-@description('Cosmos DB account name')
-param cosmosDbAccountName string = '${namePrefix}-cosmos'
-
-@description('Container Apps environment name')
-param containerAppsEnvironmentName string = '${namePrefix}-env'
-
-@description('Container App name')
-param containerAppName string = '${namePrefix}-app'
-
-@description('Container registry server hostname; use ghcr.io for GitHub Container Registry')
+@description('Container registry server hostname')
 param containerRegistryServer string = 'ghcr.io'
 
-@description('Container registry repository in the form owner/repository')
+@description('Container registry repository')
 param containerRegistryRepository string
 
 @description('Google OAuth Client ID')
@@ -32,6 +29,10 @@ param googleClientSecret string
 
 @description('Initial user email address')
 param initialUserEmail string
+
+@description('MongoDB admin password')
+@secure()
+param mongoAdminPassword string
 
 @description('Git author name')
 param gitAuthorName string
@@ -46,64 +47,13 @@ param gitToken string
 @description('Git clone URL')
 param gitCloneUrl string
 
-@description('MongoDB admin password')
-@secure()
-param mongoAdminPassword string
+@description('Subscription ID')
+param subscriptionId string
 
-// Log Analytics Workspace - Disabled to save costs
+@description('Resource group name')
+param resourceGroupName string
 
-// Container Apps Environment
-resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: containerAppsEnvironmentName
-  location: location
-  properties: {
-    // Logging disabled to save costs
-    // appLogsConfiguration: {
-    //   destination: 'log-analytics'
-    //   logAnalyticsConfiguration: {
-    //     customerId: logAnalyticsWorkspace.properties.customerId
-    //     sharedKey: logAnalyticsWorkspace.listKeys().primarySharedKey
-    //   }
-    // }
-  }
-}
-
-// Cosmos DB for MongoDB (vCore) - Free Tier
-resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' = {
-  name: cosmosDbAccountName
-  location: location
-  properties: {
-    administrator: {
-      userName: 'mongoAdmin'
-      password: mongoAdminPassword
-    }
-    compute: {
-      tier: 'Free'
-    }
-    storage: {
-      sizeGb: 32
-    }
-    sharding: {
-      shardCount: 1
-    }
-    serverVersion: '7.0'
-    highAvailability: {
-      targetMode: 'Disabled'
-    }
-  }
-}
-
-// Firewall rule to allow Azure services
-resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRules@2024-07-01' = {
-  parent: cosmosMongoCluster
-  name: 'AllowAllAzureServices'
-  properties: {
-    startIpAddress: '0.0.0.0'
-    endIpAddress: '0.0.0.0'
-  }
-}
-
-// Variables for connection strings
+// Variables
 var mongoConnectionString = 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosDbAccountName}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
 
 // Container App
@@ -114,7 +64,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    managedEnvironmentId: containerAppsEnvironment.id
+    managedEnvironmentId: environmentId
     configuration: {
       secrets: [
         {
@@ -135,7 +85,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
         {
           name: 'git-clone-url'
-          #disable-next-line use-secure-value-for-secure-inputs
           value: gitCloneUrl
         }
       ]
@@ -215,11 +164,11 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'AzureUsage__ResourceGroup'
-              value: resourceGroup().name
+              value: resourceGroupName
             }
             {
               name: 'AzureUsage__SubscriptionId'
-              value: subscription().subscriptionId
+              value: subscriptionId
             }
             {
               name: 'AzureUsage__MetricsRefreshMinutes'
@@ -231,11 +180,11 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'FreeTier__Cosmos__SubscriptionId'
-              value: subscription().subscriptionId
+              value: subscriptionId
             }
             {
               name: 'FreeTier__Cosmos__ResourceGroup'
-              value: resourceGroup().name
+              value: resourceGroupName
             }
             {
               name: 'FreeTier__Cosmos__AccountName'
@@ -247,7 +196,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'FreeTier__Cosmos__AccountResourceId'
-              value: cosmosMongoCluster.id
+              value: '/subscriptions/${subscriptionId}/resourceGroups/${resourceGroupName}/providers/Microsoft.DocumentDB/mongoClusters/${cosmosDbAccountName}'
             }
             {
               name: 'FreeTier__EnforceRequestDailyCap'
@@ -344,8 +293,5 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 
 // Outputs
 output containerAppUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
-output cosmosMongoClusterName string = cosmosMongoCluster.name
 output containerAppPrincipalId string = containerApp.identity.principalId
 output containerAppName string = containerApp.name
-
-

@@ -173,47 +173,55 @@ jobs:
         docker push $TARGET_IMAGE:${{ github.sha }}
         docker push $TARGET_IMAGE:latest
 
-    - name: Create parameters file for deployment
-      run: |
-        cat > infra/deploy-parameters.json <<EOF
-        {
-          "\$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
-          "contentVersion": "1.0.0.0",
-          "parameters": {
-            "namePrefix": {"value": "$(jq -r '.parameters.namePrefix.value' infra/parameters.json)"},
-            "location": {"value": "$(jq -r '.parameters.location.value' infra/parameters.json)"},
-            "imageTag": {"value": "$(jq -r '.parameters.imageTag.value' infra/parameters.json)"},
-            "containerRegistryServer": {"value": "${{ steps.extract-params.outputs.container-registry-server }}"},
-            "containerRegistryRepository": {"value": "${{ steps.extract-params.outputs.container-registry-repository }}"},
-            "googleClientId": {"value": "${{ steps.extract-secrets.outputs.google-client-id }}"},
-            "googleClientSecret": {"value": "${{ steps.extract-secrets.outputs.google-client-secret }}"},
-            "initialUserEmail": {"value": "${{ steps.extract-secrets.outputs.initial-user-email }}"},
-            "mongoAdminPassword": {"value": "${{ steps.extract-secrets.outputs.mongo-admin-password }}"},
-            "gitAuthorName": {"value": "${{ steps.extract-secrets.outputs.git-author-name }}"},
-            "gitAuthorEmail": {"value": "${{ steps.extract-secrets.outputs.git-author-email }}"},
-            "gitToken": {"value": "${{ steps.extract-secrets.outputs.git-token }}"},
-            "gitCloneUrl": {"value": "${{ steps.extract-secrets.outputs.git-clone-url }}"}
-          }
-        }
-        EOF
-
-    - name: Deploy Bicep template
+    - name: Deploy infrastructure (Cosmos DB + Environment)
       uses: azure/arm-deploy@v2
-      id: deploy-infra
+      id: deploy-infrastructure
       with:
         scope: resourcegroup
         subscriptionId: ${{ env.SUBSCRIPTION_ID }}
         resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
-        template: infra/main.bicep
-        parameters: infra/deploy-parameters.json
-        deploymentName: deploy-${{ github.run_number }}-${{ github.run_attempt }}
+        template: infra/infrastructure.bicep
+        parameters: >
+          namePrefix=${{ steps.extract-params.outputs.name-prefix }}
+          location=${{ steps.extract-params.outputs.location }}
+          mongoAdminPassword=${{ steps.extract-secrets.outputs.mongo-admin-password }}
+        deploymentName: infra-${{ github.run_number }}-${{ github.run_attempt }}
+        failOnStdErr: false
+
+    - name: Deploy application (Container App)
+      uses: azure/arm-deploy@v2
+      id: deploy-application
+      with:
+        scope: resourcegroup
+        subscriptionId: ${{ env.SUBSCRIPTION_ID }}
+        resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
+        template: infra/application.bicep
+        parameters: >
+          containerAppName=${{ steps.extract-params.outputs.image-name }}
+          location=${{ steps.extract-params.outputs.location }}
+          environmentId=${{ steps.deploy-infrastructure.outputs.environmentId }}
+          cosmosDbAccountName=${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
+          imageTag=latest
+          containerRegistryServer=${{ steps.extract-params.outputs.container-registry-server }}
+          containerRegistryRepository=${{ steps.extract-params.outputs.container-registry-repository }}
+          googleClientId=${{ steps.extract-secrets.outputs.google-client-id }}
+          googleClientSecret=${{ steps.extract-secrets.outputs.google-client-secret }}
+          initialUserEmail=${{ steps.extract-secrets.outputs.initial-user-email }}
+          mongoAdminPassword=${{ steps.extract-secrets.outputs.mongo-admin-password }}
+          gitAuthorName=${{ steps.extract-secrets.outputs.git-author-name }}
+          gitAuthorEmail=${{ steps.extract-secrets.outputs.git-author-email }}
+          gitToken=${{ steps.extract-secrets.outputs.git-token }}
+          gitCloneUrl=${{ steps.extract-secrets.outputs.git-clone-url }}
+          subscriptionId=${{ env.SUBSCRIPTION_ID }}
+          resourceGroupName=${{ steps.extract-params.outputs.resource-group }}
+        deploymentName: app-${{ github.run_number }}-${{ github.run_attempt }}
         failOnStdErr: false
 
     - name: Get deployment outputs
       id: get-outputs
       run: |
-        CONTAINER_APP_URL="${{ steps.deploy-infra.outputs.containerAppUrl }}"
-        PRINCIPAL_ID="${{ steps.deploy-infra.outputs.containerAppPrincipalId }}"
+        CONTAINER_APP_URL="${{ steps.deploy-application.outputs.containerAppUrl }}"
+        PRINCIPAL_ID="${{ steps.deploy-application.outputs.containerAppPrincipalId }}"
 
         echo "Container App URL: $CONTAINER_APP_URL"
         echo "Principal ID: $PRINCIPAL_ID"
