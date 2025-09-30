@@ -19,6 +19,9 @@ param containerRegistryServer string = 'ghcr.io'
 @description('Container registry repository')
 param containerRegistryRepository string
 
+@description('Scale down to zero cooldown in seconds (default: 300 = 5 minutes)')
+param scaleDownToZeroCooldownInSeconds int = 300
+
 // Container App - Minimal version (secrets and env vars configured post-deployment)
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
@@ -61,6 +64,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       scale: {
         minReplicas: 0
         maxReplicas: 1
+        cooldownPeriod: scaleDownToZeroCooldownInSeconds
         rules: [
           {
             name: 'http-rule'

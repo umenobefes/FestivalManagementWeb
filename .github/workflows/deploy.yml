@@ -3,7 +3,7 @@ name: Deploy to Azure Container Apps
 on:
   push:
     branches:
-      - master
+      - release
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,23 @@ jobs:
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Configure federated identity credentials for OIDC
+      run: |
+        AZURE_CREDS="${{ secrets.AZURE_CREDENTIALS }}"
+        CLIENT_ID=$(echo "$AZURE_CREDS" | jq -r '.clientId')
+
+        echo "Setting up federated credential for master branch..."
+        az ad app federated-credential create \
+          --id "$CLIENT_ID" \
+          --parameters '{
+            "name": "github-actions-master",
+            "issuer": "https://token.actions.githubusercontent.com",
+            "subject": "repo:${{ github.repository }}:ref:refs/heads/master",
+            "audiences": ["api://AzureADTokenExchange"]
+          }' 2>&1 | grep -v "already exists" || echo "Federated credential already exists or created"
+
+        echo "✅ Federated identity credential configured"
 
     - name: Extract subscription ID from Azure credentials
       env:
