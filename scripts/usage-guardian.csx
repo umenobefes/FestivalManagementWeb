@@ -141,17 +141,26 @@ static async Task RunAsync()
     DateTime start = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
     var metricsClient = new MetricsQueryClient(credential);
-    var metricsResponse = await metricsClient.QueryResourceAsync(
-        resourceId,
-        new[] { "Requests", "TxBytes" },
-        new MetricsQueryOptions
-        {
-            Granularity = TimeSpan.FromHours(1),
-            TimeRange = new QueryTimeRange(start, utcNow),
-            Aggregations = { MetricAggregationType.Total }
-        });
-
-    MetricsQueryResult metricsResult = metricsResponse.Value;
+    MetricsQueryResult metricsResult;
+    try
+    {
+        var metricsResponse = await metricsClient.QueryResourceAsync(
+            resourceId,
+            new[] { "Requests", "TxBytes" },
+            new MetricsQueryOptions
+            {
+                Granularity = TimeSpan.FromHours(1),
+                TimeRange = new QueryTimeRange(start, utcNow),
+                Aggregations = { MetricAggregationType.Total }
+            });
+        metricsResult = metricsResponse.Value;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Failed to query request/data metrics: {ex.Message}");
+        Environment.Exit(1);
+        return;
+    }
 
     double SumMetric(string metricName)
     {
@@ -173,17 +182,26 @@ static async Task RunAsync()
     Console.WriteLine($"MTD Requests={requestsUsed}, TxBytes={txBytes}");
 
     var costClient = new MetricsQueryClient(credential);
-    var costResponse = await costClient.QueryResourceAsync(
-        resourceId,
-        new[] { "UsageNanoCores", "WorkingSetBytes" },
-        new MetricsQueryOptions
-        {
-            Granularity = TimeSpan.FromHours(1),
-            TimeRange = new QueryTimeRange(start, utcNow),
-            Aggregations = { MetricAggregationType.Average }
-        });
-
-    MetricsQueryResult costResult = costResponse.Value;
+    MetricsQueryResult costResult;
+    try
+    {
+        var costResponse = await costClient.QueryResourceAsync(
+            resourceId,
+            new[] { "UsageNanoCores", "WorkingSetBytes" },
+            new MetricsQueryOptions
+            {
+                Granularity = TimeSpan.FromHours(1),
+                TimeRange = new QueryTimeRange(start, utcNow),
+                Aggregations = { MetricAggregationType.Average }
+            });
+        costResult = costResponse.Value;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Failed to query CPU/memory metrics: {ex.Message}");
+        Environment.Exit(1);
+        return;
+    }
 
     double SumCost(string metricName)
     {
@@ -274,38 +292,46 @@ static async Task RunAsync()
     CosmosStatus? cosmosStatus = null;
     if (!string.IsNullOrWhiteSpace(cosmosAccount))
     {
-        var cosmosCollections = string.IsNullOrWhiteSpace(cosmosCollectionsRaw)
-            ? Array.Empty<string>()
-            : cosmosCollectionsRaw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        cosmosStatus = await CheckCosmosAsync(
-            credential,
-            httpClient,
-            cosmosSubscription!,
-            cosmosResourceGroup,
-            cosmosAccount!,
-            cosmosDatabase,
-            cosmosCollections,
-            cosmosProvisioning,
-            cosmosFreeRuLimit,
-            cosmosFreeStorageGb,
-            cosmosWarnRuPct,
-            cosmosStopRuPct,
-            cosmosWarnStoragePct,
-            cosmosStopStoragePct,
-            utcNow);
-
-        foreach (var line in cosmosStatus.LogLines)
+        try
         {
-            Console.WriteLine(line);
+            var cosmosCollections = string.IsNullOrWhiteSpace(cosmosCollectionsRaw)
+                ? Array.Empty<string>()
+                : cosmosCollectionsRaw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            cosmosStatus = await CheckCosmosAsync(
+                credential,
+                httpClient,
+                cosmosSubscription!,
+                cosmosResourceGroup,
+                cosmosAccount!,
+                cosmosDatabase,
+                cosmosCollections,
+                cosmosProvisioning,
+                cosmosFreeRuLimit,
+                cosmosFreeStorageGb,
+                cosmosWarnRuPct,
+                cosmosStopRuPct,
+                cosmosWarnStoragePct,
+                cosmosStopStoragePct,
+                utcNow);
+
+            foreach (var line in cosmosStatus.LogLines)
+            {
+                Console.WriteLine(line);
+            }
+
+            if (cosmosStatus.ShouldStop)
+            {
+                shouldStop = true;
+            }
+            else if (cosmosStatus.ShouldWarn)
+            {
+                shouldWarn = true;
+            }
         }
-
-        if (cosmosStatus.ShouldStop)
+        catch (Exception ex)
         {
-            shouldStop = true;
-        }
-        else if (cosmosStatus.ShouldWarn)
-        {
+            Console.WriteLine($"Cosmos check failed: {ex.Message}");
             shouldWarn = true;
         }
     }
@@ -345,19 +371,28 @@ static async Task RunAsync()
                 ["properties"] = properties
             };
 
-            var updatedData = containerApp.Data;
-            if (updatedData.Template?.Scale != null)
+            try
             {
-                updatedData.Template.Scale.MinReplicas = 0;
-                updatedData.Template.Scale.MaxReplicas = 0;
-            }
+                var updatedData = containerApp.Data;
+                if (updatedData.Template?.Scale != null)
+                {
+                    updatedData.Template.Scale.MinReplicas = 0;
+                    updatedData.Template.Scale.MaxReplicas = 0;
+                }
 
-            if (disableIngress && updatedData.Configuration?.Ingress != null)
+                if (disableIngress && updatedData.Configuration?.Ingress != null)
+                {
+                    updatedData.Configuration.Ingress = null;
+                }
+
+                await containerApp.UpdateAsync(WaitUntil.Completed, updatedData);
+                Console.WriteLine("Container App successfully frozen.");
+            }
+            catch (Exception ex)
             {
-                updatedData.Configuration.Ingress = null;
+                Console.Error.WriteLine($"Failed to freeze Container App: {ex.Message}");
+                Environment.Exit(1);
             }
-
-            await containerApp.UpdateAsync(WaitUntil.Completed, updatedData);
         }
         else
         {
@@ -582,7 +617,13 @@ static async Task<JsonDocument?> GetJsonAsync(HttpClient http, string requestUri
         return null;
     }
 
-    response.EnsureSuccessStatusCode();
+    if (!response.IsSuccessStatusCode)
+    {
+        var errorContent = await response.Content.ReadAsStringAsync(CancellationToken.None);
+        Console.WriteLine($"HTTP {(int)response.StatusCode} error for {requestUri}: {errorContent}");
+        return null;
+    }
+
     var stream = await response.Content.ReadAsStreamAsync(CancellationToken.None);
     return await JsonDocument.ParseAsync(stream, cancellationToken: CancellationToken.None);
 }
