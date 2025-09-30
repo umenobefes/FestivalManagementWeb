@@ -1,8 +1,8 @@
-﻿#r "nuget: Azure.Identity, 1.12.0"
-#r "nuget: Azure.ResourceManager, 1.14.0"
-#r "nuget: Azure.ResourceManager.AppContainers, 1.1.0"
-#r "nuget: Azure.Monitor.Query, 1.3.0"
-#r "nuget: System.Text.Json, 8.0.3"
+﻿#r "nuget: Azure.Identity, 1.16.0"
+#r "nuget: Azure.ResourceManager, 1.13.2"
+#r "nuget: Azure.ResourceManager.AppContainers, 1.4.1"
+#r "nuget: Azure.Monitor.Query, 1.7.1"
+#r "nuget: System.Text.Json, 8.0.6"
 
 using System;
 using System.Collections.Generic;
