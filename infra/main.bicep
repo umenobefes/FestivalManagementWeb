@@ -52,7 +52,7 @@ var mongoAdminPassword = secrets.mongoAdminPassword
 // }
 
 // Container Apps Environment
-resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01' = {
+resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: containerAppsEnvironmentName
   location: location
   properties: {
@@ -68,13 +68,13 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01'
 }
 
 // Cosmos DB for MongoDB (vCore) - Free Tier
-resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2025-04-01-preview' = {
+resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' = {
   name: cosmosDbAccountName
   location: location
   properties: {
     administrator: {
       userName: 'mongoAdmin'
-      password: secrets.mongoAdminPassword
+      password: mongoAdminPassword
     }
     compute: {
       tier: 'Free'
@@ -82,18 +82,15 @@ resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2025-04-01-previ
     storage: {
       sizeGb: 32
     }
-    serverVersion: '6.0'
+    serverVersion: '7.0'
     highAvailability: {
       targetMode: 'Disabled'
-    }
-    backup: {
-      earliestRestoreTime: null
     }
   }
 }
 
 // Firewall rule to allow Azure services
-resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRules@2025-04-01-preview' = {
+resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRules@2024-07-01' = {
   parent: cosmosMongoCluster
   name: 'AllowAllAzureServices'
   properties: {
@@ -103,7 +100,7 @@ resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRu
 }
 
 // Container App
-resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
+resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
   identity: {
@@ -115,7 +112,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       secrets: [
         {
           name: 'mongo-connection-string'
-          value: cosmosMongoCluster.listConnectionStrings().connectionStrings[0].connectionString
+          value: 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosMongoCluster.name}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
         }
         {
           name: 'google-client-id'

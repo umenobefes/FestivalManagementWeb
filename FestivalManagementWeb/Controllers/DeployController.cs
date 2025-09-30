@@ -62,6 +62,9 @@ namespace FestivalManagementWeb.Controllers
                 await _git.PullLatest(branchName);
             }
 
+            var repoRoot = _git.RepositoryRootPath;
+            ResetOutputDirectory(repoRoot);
+
             var lastCommitWhen = await _git.GetLastCommitDateAsync(branchName);
             DateTime? lastCommitUtc = lastCommitWhen?.UtcDateTime;
 
@@ -81,7 +84,7 @@ namespace FestivalManagementWeb.Controllers
                 {
                     var filter = MongoDB.Driver.Builders<GridFSFileInfo>.Filter.Eq(x => x.Id, img.GridFSFileId);
                     using var cursor = await _bucket.FindAsync(filter);
-                    GridFSFileInfo info = null;
+                    GridFSFileInfo? info = null;
                     while (await cursor.MoveNextAsync())
                     {
                         info = cursor.Current.FirstOrDefault();
@@ -89,8 +92,9 @@ namespace FestivalManagementWeb.Controllers
                     }
                     filename = info?.Filename ?? string.Empty;
                 }
-                catch
+                catch (Exception)
                 {
+                    // GridFS file not found or error - use empty filename
                     filename = string.Empty;
                 }
                 imageList.Add(new { name = img.Key, filename });
@@ -102,16 +106,6 @@ namespace FestivalManagementWeb.Controllers
                 Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                 WriteIndented = true
             };
-
-            var repoRoot = _git.GetOutputRoot(branchName);
-            var branchFolderName = SanitizeFolderName(branchName);
-            var legacyBranchDir = Path.Combine(repoRoot, branchFolderName);
-            if (Directory.Exists(legacyBranchDir) && !string.Equals(legacyBranchDir, repoRoot, StringComparison.OrdinalIgnoreCase))
-            {
-                Directory.Delete(legacyBranchDir, recursive: true);
-            }
-
-            ResetOutputDirectory(repoRoot);
 
             var textPath = Path.Combine(repoRoot, "TextKeyValues.json");
             var imagePath = Path.Combine(repoRoot, "ImageKeyValues.json");
@@ -135,7 +129,11 @@ namespace FestivalManagementWeb.Controllers
                 }
                 catch (GridFSFileNotFoundException)
                 {
-                    // skip if missing in GridFS
+                    // Skip if missing in GridFS
+                }
+                catch (Exception)
+                {
+                    // Skip on any other error during image export
                 }
             }
 
@@ -189,19 +187,10 @@ namespace FestivalManagementWeb.Controllers
                 {
                     continue;
                 }
-                if (string.Equals(name, "images", StringComparison.OrdinalIgnoreCase))
-                {
-                    Directory.Delete(directory, recursive: true);
-                }
+                Directory.Delete(directory, recursive: true);
             }
         }
 
-        private static string SanitizeFolderName(string branchName)
-        {
-            var invalid = Path.GetInvalidFileNameChars();
-            var sanitized = new string(branchName.Where(ch => !invalid.Contains(ch)).ToArray());
-            return string.IsNullOrWhiteSpace(sanitized) ? "default" : sanitized;
-        }
     }
 }
 

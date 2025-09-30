@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build-and-deploy:
@@ -23,8 +24,10 @@ jobs:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Extract subscription ID from Azure credentials
+      env:
+        AZURE_CREDS: ${{ secrets.AZURE_CREDENTIALS }}
       run: |
-        SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
+        SUBSCRIPTION_ID=$(echo "$AZURE_CREDS" | jq -r '.subscriptionId')
         echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
 
     - name: Extract parameters for resource group creation
@@ -32,6 +35,17 @@ jobs:
       run: |
         NAME_PREFIX=$(jq -r '.parameters.namePrefix.value' infra/parameters.json)
         LOCATION=$(jq -r '.parameters.location.value' infra/parameters.json)
+
+        # Validate required parameters
+        if [ -z "$NAME_PREFIX" ] || [ "$NAME_PREFIX" = "null" ]; then
+          echo "Error: namePrefix is required in parameters.json"
+          exit 1
+        fi
+        if [ -z "$LOCATION" ] || [ "$LOCATION" = "null" ]; then
+          echo "Error: location is required in parameters.json"
+          exit 1
+        fi
+
         REGISTRY_REPOSITORY=$(jq -r '.parameters.containerRegistryRepository.value // empty' infra/parameters.json 2>/dev/null)
         REGISTRY_SERVER=$(jq -r '.parameters.containerRegistryServer.value // empty' infra/parameters.json 2>/dev/null)
         if [ "$REGISTRY_REPOSITORY" = "null" ]; then
@@ -44,11 +58,15 @@ jobs:
         if [ "$REGISTRY_SERVER" = "null" ] || [ -z "$REGISTRY_SERVER" ]; then
           REGISTRY_SERVER="ghcr.io"
         fi
+
+        IMAGE_NAME="${NAME_PREFIX}-app"
+
         echo "name-prefix=$NAME_PREFIX" >> $GITHUB_OUTPUT
         echo "location=$LOCATION" >> $GITHUB_OUTPUT
         echo "resource-group=rg-${NAME_PREFIX}" >> $GITHUB_OUTPUT
         echo "container-registry-repository=$REGISTRY_REPOSITORY" >> $GITHUB_OUTPUT
         echo "container-registry-server=$REGISTRY_SERVER" >> $GITHUB_OUTPUT
+        echo "image-name=$IMAGE_NAME" >> $GITHUB_OUTPUT
 
     - name: Create Resource Group
       run: |
@@ -57,8 +75,49 @@ jobs:
           --location ${{ steps.extract-params.outputs.location }}
 
     - name: Create secrets JSON from app secrets
+      env:
+        APP_SECRETS_JSON: ${{ secrets.APP_SECRETS }}
       run: |
-        echo '${{ secrets.APP_SECRETS }}' > infra/secrets.json
+        if [ -z "$APP_SECRETS_JSON" ]; then
+          echo "Error: APP_SECRETS secret is not set"
+          exit 1
+        fi
+        echo "$APP_SECRETS_JSON" > infra/secrets.json
+
+        # Validate JSON structure
+        if ! jq -e '.googleClientId' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'googleClientId'"
+          exit 1
+        fi
+        if ! jq -e '.googleClientSecret' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'googleClientSecret'"
+          exit 1
+        fi
+        if ! jq -e '.initialUserEmail' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'initialUserEmail'"
+          exit 1
+        fi
+        if ! jq -e '.mongoAdminPassword' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'mongoAdminPassword'"
+          exit 1
+        fi
+        if ! jq -e '.gitSettings.authorName' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'gitSettings.authorName'"
+          exit 1
+        fi
+        if ! jq -e '.gitSettings.authorEmail' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'gitSettings.authorEmail'"
+          exit 1
+        fi
+        if ! jq -e '.gitSettings.token' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'gitSettings.token'"
+          exit 1
+        fi
+        if ! jq -e '.gitSettings.cloneUrl' infra/secrets.json > /dev/null; then
+          echo "Error: APP_SECRETS must contain 'gitSettings.cloneUrl'"
+          exit 1
+        fi
+        echo "All required secrets validated"
 
     - name: Deploy Bicep template
       uses: azure/arm-deploy@v1
@@ -68,41 +127,60 @@ jobs:
         resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
         template: infra/main.bicep
         parameters: >
-          infra/parameters.json
+          @infra/parameters.json
           containerRegistryServer=${{ steps.extract-params.outputs.container-registry-server }}
           containerRegistryRepository=${{ steps.extract-params.outputs.container-registry-repository }}
 
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
     - name: Build Docker image
       run: |
-        IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
-        docker build -f FestivalManagementWeb/Dockerfile -t $IMAGE_NAME:${{ github.sha }} .
+        docker build -f FestivalManagementWeb/Dockerfile -t ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} .
 
     - name: Login to container registry
       run: |
         REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
-        echo "${{ secrets.GHCR_TOKEN }}" | docker login "$REGISTRY" --username "${{ secrets.GHCR_USERNAME }}" --password-stdin
+        if [ "$REGISTRY" = "ghcr.io" ]; then
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
+        else
+          echo "Error: Only GHCR (ghcr.io) is supported as container registry"
+          exit 1
+        fi
 
     - name: Push Docker image
       run: |
-        IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
         REPOSITORY="${{ steps.extract-params.outputs.container-registry-repository }}"
         REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
         TARGET_IMAGE="$REGISTRY/$REPOSITORY"
-        docker tag $IMAGE_NAME:${{ github.sha }} $TARGET_IMAGE:${{ github.sha }}
-        docker tag $IMAGE_NAME:${{ github.sha }} $TARGET_IMAGE:latest
+        docker tag ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} $TARGET_IMAGE:${{ github.sha }}
+        docker tag ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} $TARGET_IMAGE:latest
         docker push $TARGET_IMAGE:${{ github.sha }}
         docker push $TARGET_IMAGE:latest
 
     - name: Update Container App
       run: |
-        IMAGE_NAME="${{ steps.extract-params.outputs.name-prefix }}-app"
         REPOSITORY="${{ steps.extract-params.outputs.container-registry-repository }}"
         REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
         TARGET_IMAGE="$REGISTRY/$REPOSITORY:${{ github.sha }}"
+        REVISION_SUFFIX="$(date +%s)-$(echo "${{ github.sha }}" | cut -c1-7)"
         az containerapp update \
-          --name $IMAGE_NAME \
+          --name ${{ steps.extract-params.outputs.image-name }} \
           --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --image $TARGET_IMAGE
+          --image $TARGET_IMAGE \
+          --revision-suffix $REVISION_SUFFIX
+
+    - name: Cleanup secrets
+      if: always()
+      run: rm -f infra/secrets.json
 
     - name: Output application URL
       run: |

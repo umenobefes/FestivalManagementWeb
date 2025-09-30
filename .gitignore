@@ -362,4 +362,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-appsettings.Development.json 
+appsettings.Development.json
+
+# Git deployment output directory
+git/
