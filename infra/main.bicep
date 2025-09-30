@@ -203,10 +203,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: 'true'
             }
             {
-              name: 'AzureUsage__ContainerAppResourceId'
-              value: resourceId('Microsoft.App/containerApps', containerAppName)
-            }
-            {
               name: 'AzureUsage__ContainerAppName'
               value: containerAppName
             }
