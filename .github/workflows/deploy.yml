@@ -192,11 +192,10 @@ jobs:
         echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
         echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
 
-    - name: Deploy application (Container App)
+    - name: Deploy application (Container App - minimal)
       id: deploy-application
       run: |
-        echo "Deploying application..."
-        set +e
+        echo "Deploying minimal Container App..."
         az deployment group create \
           --name "app-${{ github.run_number }}-${{ github.run_attempt }}" \
           --resource-group ${{ steps.extract-params.outputs.resource-group }} \
@@ -208,33 +207,79 @@ jobs:
           --parameters imageTag="latest" \
           --parameters containerRegistryServer="${{ steps.extract-params.outputs.container-registry-server }}" \
           --parameters containerRegistryRepository="${{ steps.extract-params.outputs.container-registry-repository }}" \
-          --parameters googleClientId="${{ steps.extract-secrets.outputs.google-client-id }}" \
-          --parameters googleClientSecret="${{ steps.extract-secrets.outputs.google-client-secret }}" \
-          --parameters initialUserEmail="${{ steps.extract-secrets.outputs.initial-user-email }}" \
-          --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
-          --parameters gitAuthorName="${{ steps.extract-secrets.outputs.git-author-name }}" \
-          --parameters gitAuthorEmail="${{ steps.extract-secrets.outputs.git-author-email }}" \
-          --parameters gitToken="${{ steps.extract-secrets.outputs.git-token }}" \
-          --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}" \
-          --parameters subscriptionId="${{ env.SUBSCRIPTION_ID }}" \
-          --parameters resourceGroupName="${{ steps.extract-params.outputs.resource-group }}" \
-          --output json > app-output.json 2>&1
-
-        EXIT_CODE=$?
-        cat app-output.json
-
-        if [ $EXIT_CODE -ne 0 ]; then
-          echo "Deployment failed with exit code $EXIT_CODE"
-          cat app-output.json
-          exit $EXIT_CODE
-        fi
-        set -e
+          --output json > app-output.json
 
         APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' app-output.json)
         PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' app-output.json)
 
         echo "containerAppUrl=$APP_URL" >> $GITHUB_OUTPUT
         echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
+
+    - name: Configure Container App secrets and environment
+      run: |
+        echo "Configuring secrets and environment variables..."
+        APP_NAME="${{ steps.extract-params.outputs.image-name }}"
+        RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
+        COSMOS_NAME="${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}"
+
+        MONGO_CONN="mongodb+srv://mongoAdmin:${{ steps.extract-secrets.outputs.mongo-admin-password }}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+
+        # Set secrets
+        az containerapp secret set \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --secrets \
+            mongo-connection-string="$MONGO_CONN" \
+            google-client-id="${{ steps.extract-secrets.outputs.google-client-id }}" \
+            google-client-secret="${{ steps.extract-secrets.outputs.google-client-secret }}" \
+            git-token="${{ steps.extract-secrets.outputs.git-token }}" \
+            git-clone-url="${{ steps.extract-secrets.outputs.git-clone-url }}"
+
+        # Update with environment variables
+        az containerapp update \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --set-env-vars \
+            ASPNETCORE_ENVIRONMENT=Production \
+            MongoDbSettings__ConnectionString=secretref:mongo-connection-string \
+            MongoDbSettings__DatabaseName=FestivalManagement \
+            Authentication__Google__ClientId=secretref:google-client-id \
+            Authentication__Google__ClientSecret=secretref:google-client-secret \
+            InitialUser__Email="${{ steps.extract-secrets.outputs.initial-user-email }}" \
+            FreeTier__EnableBanner=true \
+            FreeTier__BudgetVcpuSeconds=180000 \
+            FreeTier__BudgetGiBSeconds=360000 \
+            FreeTier__Resource__VcpuPerReplica=0.25 \
+            FreeTier__Resource__MemoryGiBPerReplica=0.5 \
+            FreeTier__Resource__ReplicaFactor=1 \
+            AzureUsage__Enabled=true \
+            AzureUsage__ContainerAppName="$APP_NAME" \
+            AzureUsage__ResourceGroup="$RESOURCE_GROUP" \
+            AzureUsage__SubscriptionId="${{ env.SUBSCRIPTION_ID }}" \
+            AzureUsage__MetricsRefreshMinutes=10 \
+            FreeTier__Cosmos__Enabled=true \
+            FreeTier__Cosmos__SubscriptionId="${{ env.SUBSCRIPTION_ID }}" \
+            FreeTier__Cosmos__ResourceGroup="$RESOURCE_GROUP" \
+            FreeTier__Cosmos__AccountName="$COSMOS_NAME" \
+            FreeTier__Cosmos__DatabaseName=FestivalManagement \
+            FreeTier__Cosmos__AccountResourceId="/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME" \
+            FreeTier__EnforceRequestDailyCap=false \
+            FreeTier__Data__BudgetGb=100 \
+            FreeTier__Requests__Budget=2000000 \
+            FreeTier__Cosmos__Provisioning=vCore \
+            FreeTier__Cosmos__FreeTierStorageGb=32 \
+            FreeTier__Cosmos__FreeTierVCoreStorageGb=32 \
+            FreeTier__Cosmos__WarnRuPercent=90 \
+            FreeTier__Cosmos__WarnStoragePercent=90 \
+            FreeTier__Cosmos__RefreshMinutes=60 \
+            AzureUsage__CostRefreshMinutes=360 \
+            GitSettings__RemoteName=origin \
+            FreeTier__Cosmos__CollectionNames__0=TextKeyValues \
+            FreeTier__Cosmos__CollectionNames__1=ImageKeyValues \
+            GitSettings__AuthorName="${{ steps.extract-secrets.outputs.git-author-name }}" \
+            GitSettings__AuthorEmail="${{ steps.extract-secrets.outputs.git-author-email }}" \
+            GitSettings__Token=secretref:git-token \
+            GitSettings__CloneUrl=secretref:git-clone-url
 
     - name: Assign roles to Container App managed identity
       continue-on-error: true
