@@ -57,6 +57,29 @@ param resourceGroupName string
 // Variables
 var mongoConnectionString = 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosDbAccountName}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
 
+var appSecrets = [
+  {
+    name: 'mongo-connection-string'
+    value: mongoConnectionString
+  }
+  {
+    name: 'google-client-id'
+    value: googleClientId
+  }
+  {
+    name: 'google-client-secret'
+    value: googleClientSecret
+  }
+  {
+    name: 'git-token'
+    value: gitToken
+  }
+  {
+    name: 'git-clone-url'
+    value: gitCloneUrl
+  }
+]
+
 // Container App
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
@@ -67,28 +90,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: environmentId
     configuration: {
-      secrets: [
-        {
-          name: 'mongo-connection-string'
-          value: mongoConnectionString
-        }
-        {
-          name: 'google-client-id'
-          value: googleClientId
-        }
-        {
-          name: 'google-client-secret'
-          value: googleClientSecret
-        }
-        {
-          name: 'git-token'
-          value: gitToken
-        }
-        {
-          name: 'git-clone-url'
-          value: gitCloneUrl
-        }
-      ]
+      secrets: appSecrets
       ingress: {
         external: true
         targetPort: 8080

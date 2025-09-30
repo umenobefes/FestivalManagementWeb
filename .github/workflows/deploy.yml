@@ -217,7 +217,8 @@ jobs:
           --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}" \
           --parameters subscriptionId="${{ env.SUBSCRIPTION_ID }}" \
           --parameters resourceGroupName="${{ steps.extract-params.outputs.resource-group }}" \
-          --output json > app-output.json
+          --only-show-errors \
+          --output json > app-output.json 2>&1
 
         APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' app-output.json)
         PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' app-output.json)
