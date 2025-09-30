@@ -22,6 +22,7 @@ using Azure.Monitor.Query;
 using Azure.Monitor.Query.Models;
 using Azure.ResourceManager;
 using Azure.ResourceManager.AppContainers;
+using Azure.ResourceManager.AppContainers.Models;
 
 const string ManagementEndpoint = "https://management.azure.com";
 const string ManagementScope = "https://management.azure.com/.default";
@@ -134,7 +135,7 @@ static async Task RunAsync()
         return;
     }
 
-    string resourceId = containerApp.Data.Id;
+    string resourceId = containerApp.Data.Id.ToString();
 
     DateTime utcNow = DateTime.UtcNow;
     DateTime start = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -341,22 +342,19 @@ static async Task RunAsync()
                 ["properties"] = properties
             };
 
-            string patchJson = JsonSerializer.Serialize(patch, new JsonSerializerOptions
+            var updatedData = containerApp.Data;
+            if (updatedData.Template?.Scale != null)
             {
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            });
-
-            var patchData = new ContainerAppPatch();
-            var scaleConfig = patchData.Template.Scale;
-            scaleConfig.MinReplicas = 0;
-            scaleConfig.MaxReplicas = 0;
-
-            if (disableIngress && patchData.Configuration != null)
-            {
-                patchData.Configuration.Ingress = null;
+                updatedData.Template.Scale.MinReplicas = 0;
+                updatedData.Template.Scale.MaxReplicas = 0;
             }
 
-            await containerApp.UpdateAsync(WaitUntil.Completed, patchData);
+            if (disableIngress && updatedData.Configuration?.Ingress != null)
+            {
+                updatedData.Configuration.Ingress = null;
+            }
+
+            await containerApp.UpdateAsync(WaitUntil.Completed, updatedData);
         }
         else
         {
