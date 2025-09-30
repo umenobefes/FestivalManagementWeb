@@ -119,6 +119,20 @@ jobs:
         fi
         echo "All required secrets validated"
 
+    - name: Extract secrets for Bicep parameters
+      id: extract-secrets
+      env:
+        APP_SECRETS_JSON: ${{ secrets.APP_SECRETS }}
+      run: |
+        echo "google-client-id=$(echo "$APP_SECRETS_JSON" | jq -r '.googleClientId')" >> $GITHUB_OUTPUT
+        echo "google-client-secret=$(echo "$APP_SECRETS_JSON" | jq -r '.googleClientSecret')" >> $GITHUB_OUTPUT
+        echo "initial-user-email=$(echo "$APP_SECRETS_JSON" | jq -r '.initialUserEmail')" >> $GITHUB_OUTPUT
+        echo "mongo-admin-password=$(echo "$APP_SECRETS_JSON" | jq -r '.mongoAdminPassword')" >> $GITHUB_OUTPUT
+        echo "git-author-name=$(echo "$APP_SECRETS_JSON" | jq -r '.gitSettings.authorName')" >> $GITHUB_OUTPUT
+        echo "git-author-email=$(echo "$APP_SECRETS_JSON" | jq -r '.gitSettings.authorEmail')" >> $GITHUB_OUTPUT
+        echo "git-token=$(echo "$APP_SECRETS_JSON" | jq -r '.gitSettings.token')" >> $GITHUB_OUTPUT
+        echo "git-clone-url=$(echo "$APP_SECRETS_JSON" | jq -r '.gitSettings.cloneUrl')" >> $GITHUB_OUTPUT
+
     - name: Deploy Bicep template
       uses: azure/arm-deploy@v1
       id: deploy-infra
@@ -130,6 +144,14 @@ jobs:
           @infra/parameters.json
           containerRegistryServer=${{ steps.extract-params.outputs.container-registry-server }}
           containerRegistryRepository=${{ steps.extract-params.outputs.container-registry-repository }}
+          googleClientId=${{ steps.extract-secrets.outputs.google-client-id }}
+          googleClientSecret=${{ steps.extract-secrets.outputs.google-client-secret }}
+          initialUserEmail=${{ steps.extract-secrets.outputs.initial-user-email }}
+          mongoAdminPassword=${{ steps.extract-secrets.outputs.mongo-admin-password }}
+          gitAuthorName=${{ steps.extract-secrets.outputs.git-author-name }}
+          gitAuthorEmail=${{ steps.extract-secrets.outputs.git-author-email }}
+          gitToken=${{ steps.extract-secrets.outputs.git-token }}
+          gitCloneUrl=${{ steps.extract-secrets.outputs.git-clone-url }}
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3

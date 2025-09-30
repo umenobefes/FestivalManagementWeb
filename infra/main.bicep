@@ -22,34 +22,35 @@ param containerRegistryServer string = 'ghcr.io'
 @description('Container registry repository in the form owner/repository')
 param containerRegistryRepository string
 
-@description('Log Analytics workspace name')
-param logAnalyticsWorkspaceName string = '${namePrefix}-logs'
+@description('Google OAuth Client ID')
+@secure()
+param googleClientId string
 
-@description('Path to secrets JSON file')
-param secretsFile string = 'secrets.json'
+@description('Google OAuth Client Secret')
+@secure()
+param googleClientSecret string
 
-// Load secrets from JSON file
-var secrets = json(loadTextContent(secretsFile))
-var googleClientId = secrets.googleClientId
-var googleClientSecret = secrets.googleClientSecret
-var initialUserEmail = secrets.initialUserEmail
-var gitAuthorName = secrets.gitSettings.authorName
-var gitAuthorEmail = secrets.gitSettings.authorEmail
-var gitToken = secrets.gitSettings.token
-var gitCloneUrl = secrets.gitSettings.cloneUrl
-var mongoAdminPassword = secrets.mongoAdminPassword
+@description('Initial user email address')
+param initialUserEmail string
+
+@description('Git author name')
+param gitAuthorName string
+
+@description('Git author email')
+param gitAuthorEmail string
+
+@description('Git access token')
+@secure()
+param gitToken string
+
+@description('Git clone URL')
+param gitCloneUrl string
+
+@description('MongoDB admin password')
+@secure()
+param mongoAdminPassword string
 
 // Log Analytics Workspace - Disabled to save costs
-// resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
-//   name: logAnalyticsWorkspaceName
-//   location: location
-//   properties: {
-//     sku: {
-//       name: 'PerGB2018'
-//     }
-//     retentionInDays: 30
-//   }
-// }
 
 // Container Apps Environment
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
@@ -348,9 +349,6 @@ resource containerAppResourceGroupReader 'Microsoft.Authorization/roleAssignment
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
   }
-  dependsOn: [
-    containerApp
-  ]
 }
 
 resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -361,9 +359,6 @@ resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43ffd8ad-0a53-4d32-b4f2-2184e67fc42a')
   }
-  dependsOn: [
-    containerApp
-  ]
 }
 
 resource containerAppCostReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -374,9 +369,6 @@ resource containerAppCostReader 'Microsoft.Authorization/roleAssignments@2022-04
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '72d43a3d-b78b-415c-90f0-5ee7a6db6b4b')
   }
-  dependsOn: [
-    containerApp
-  ]
 }
 
 // Outputs
