@@ -196,6 +196,7 @@ jobs:
       id: deploy-application
       run: |
         echo "Deploying application..."
+        set +e
         az deployment group create \
           --name "app-${{ github.run_number }}-${{ github.run_attempt }}" \
           --resource-group ${{ steps.extract-params.outputs.resource-group }} \
@@ -217,8 +218,17 @@ jobs:
           --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}" \
           --parameters subscriptionId="${{ env.SUBSCRIPTION_ID }}" \
           --parameters resourceGroupName="${{ steps.extract-params.outputs.resource-group }}" \
-          --only-show-errors \
           --output json > app-output.json 2>&1
+
+        EXIT_CODE=$?
+        cat app-output.json
+
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "Deployment failed with exit code $EXIT_CODE"
+          cat app-output.json
+          exit $EXIT_CODE
+        fi
+        set -e
 
         APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' app-output.json)
         PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' app-output.json)
