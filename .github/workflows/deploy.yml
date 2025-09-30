@@ -175,7 +175,7 @@ jobs:
         docker push $TARGET_IMAGE:latest
 
     - name: Make package public (if GH_PAT configured)
-      if: secrets.GH_PAT != ''
+      if: ${{ secrets.GH_PAT != '' }}
       run: |
         REPO_FULL="${{ steps.extract-params.outputs.container-registry-repository }}"
         OWNER=$(echo "$REPO_FULL" | cut -d'/' -f1)
