@@ -173,6 +173,26 @@ jobs:
         docker push $TARGET_IMAGE:${{ github.sha }}
         docker push $TARGET_IMAGE:latest
 
+    - name: Make package public
+      run: |
+        PACKAGE_NAME=$(echo "${{ steps.extract-params.outputs.container-registry-repository }}" | cut -d'/' -f2)
+        echo "Setting package visibility to public: $PACKAGE_NAME"
+
+        gh api \
+          --method PATCH \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "/orgs/${{ github.repository_owner }}/packages/container/$PACKAGE_NAME" \
+          -f visibility='public' || \
+        gh api \
+          --method PATCH \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "/users/${{ github.repository_owner }}/packages/container/$PACKAGE_NAME" \
+          -f visibility='public'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Deploy infrastructure (Cosmos DB + Environment)
       id: deploy-infrastructure
       run: |
@@ -190,7 +210,7 @@ jobs:
           ENV_EXISTS=true
         fi
 
-        if az cosmosdb mongocluster show --name "$COSMOS_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        if az cosmosdb mongocluster show --cluster-name "$COSMOS_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null 2>&1; then
           echo "Cosmos DB already exists: $COSMOS_NAME"
           COSMOS_EXISTS=true
         fi
@@ -227,6 +247,8 @@ jobs:
         # Check if Container App exists
         if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
           echo "Container App exists, updating image..."
+
+          # Update image (public image, no authentication)
           az containerapp update \
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
