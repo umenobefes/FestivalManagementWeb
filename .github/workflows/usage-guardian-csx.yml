@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
@@ -56,12 +55,10 @@ jobs:
           echo "COSMOS_COLLECTION_NAMES=TextKeyValues,ImageKeyValues" >> $GITHUB_ENV
           echo "COSMOS_PROVISIONING=vCore" >> $GITHUB_ENV
 
-      - name: Azure Login (OIDC)
+      - name: Azure Login
         uses: azure/login@v2
         with:
-          client-id: ${{ env.CLIENT_ID }}
-          tenant-id: ${{ env.TENANT_ID }}
-          subscription-id: ${{ env.SUBSCRIPTION_ID }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
