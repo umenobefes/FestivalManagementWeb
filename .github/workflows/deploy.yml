@@ -168,71 +168,50 @@ jobs:
         docker push $TARGET_IMAGE:${{ github.sha }}
         docker push $TARGET_IMAGE:latest
 
-    - name: Deploy Bicep template
-      id: deploy-infra
+    - name: Create parameters file for deployment
       run: |
-        DEPLOYMENT_NAME="deploy-$(date +%s)"
+        cat > infra/deploy-parameters.json <<EOF
+        {
+          "\$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "namePrefix": {"value": "$(jq -r '.parameters.namePrefix.value' infra/parameters.json)"},
+            "location": {"value": "$(jq -r '.parameters.location.value' infra/parameters.json)"},
+            "imageTag": {"value": "$(jq -r '.parameters.imageTag.value' infra/parameters.json)"},
+            "containerRegistryServer": {"value": "${{ steps.extract-params.outputs.container-registry-server }}"},
+            "containerRegistryRepository": {"value": "${{ steps.extract-params.outputs.container-registry-repository }}"},
+            "googleClientId": {"value": "${{ steps.extract-secrets.outputs.google-client-id }}"},
+            "googleClientSecret": {"value": "${{ steps.extract-secrets.outputs.google-client-secret }}"},
+            "initialUserEmail": {"value": "${{ steps.extract-secrets.outputs.initial-user-email }}"},
+            "mongoAdminPassword": {"value": "${{ steps.extract-secrets.outputs.mongo-admin-password }}"},
+            "gitAuthorName": {"value": "${{ steps.extract-secrets.outputs.git-author-name }}"},
+            "gitAuthorEmail": {"value": "${{ steps.extract-secrets.outputs.git-author-email }}"},
+            "gitToken": {"value": "${{ steps.extract-secrets.outputs.git-token }}"},
+            "gitCloneUrl": {"value": "${{ steps.extract-secrets.outputs.git-clone-url }}"}
+          }
+        }
+        EOF
 
-        echo "Starting deployment: $DEPLOYMENT_NAME"
+    - name: Deploy Bicep template
+      uses: azure/arm-deploy@v2
+      id: deploy-infra
+      with:
+        scope: resourcegroup
+        subscriptionId: ${{ env.SUBSCRIPTION_ID }}
+        resourceGroupName: ${{ steps.extract-params.outputs.resource-group }}
+        template: infra/main.bicep
+        parameters: infra/deploy-parameters.json
+        deploymentName: deploy-${{ github.run_number }}-${{ github.run_attempt }}
+        failOnStdErr: false
 
-        # Start deployment without waiting
-        az deployment group create \
-          --name "$DEPLOYMENT_NAME" \
-          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --template-file infra/main.bicep \
-          --parameters @infra/parameters.json \
-          --parameters containerRegistryServer="${{ steps.extract-params.outputs.container-registry-server }}" \
-          --parameters containerRegistryRepository="${{ steps.extract-params.outputs.container-registry-repository }}" \
-          --parameters googleClientId="${{ steps.extract-secrets.outputs.google-client-id }}" \
-          --parameters googleClientSecret="${{ steps.extract-secrets.outputs.google-client-secret }}" \
-          --parameters initialUserEmail="${{ steps.extract-secrets.outputs.initial-user-email }}" \
-          --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
-          --parameters gitAuthorName="${{ steps.extract-secrets.outputs.git-author-name }}" \
-          --parameters gitAuthorEmail="${{ steps.extract-secrets.outputs.git-author-email }}" \
-          --parameters gitToken="${{ steps.extract-secrets.outputs.git-token }}" \
-          --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}" \
-          --no-wait
+    - name: Get deployment outputs
+      id: get-outputs
+      run: |
+        CONTAINER_APP_URL="${{ steps.deploy-infra.outputs.containerAppUrl }}"
+        PRINCIPAL_ID="${{ steps.deploy-infra.outputs.containerAppPrincipalId }}"
 
-        echo "Deployment started, waiting for completion..."
-
-        # Poll for completion
-        while true; do
-          STATE=$(az deployment group show \
-            --name "$DEPLOYMENT_NAME" \
-            --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-            --query 'properties.provisioningState' \
-            --output tsv 2>/dev/null || echo "NotFound")
-
-          echo "Deployment state: $STATE"
-
-          if [ "$STATE" = "Succeeded" ]; then
-            echo "Deployment succeeded!"
-            break
-          elif [ "$STATE" = "Failed" ] || [ "$STATE" = "Canceled" ]; then
-            echo "Deployment failed with state: $STATE"
-            az deployment operation group list \
-              --name "$DEPLOYMENT_NAME" \
-              --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-              --query "[?properties.provisioningState=='Failed'].{Resource:properties.targetResource.resourceName, Error:properties.statusMessage}" \
-              --output table
-            exit 1
-          fi
-
-          sleep 15
-        done
-
-        # Get outputs in separate command
-        CONTAINER_APP_URL=$(az deployment group show \
-          --name "$DEPLOYMENT_NAME" \
-          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --query 'properties.outputs.containerAppUrl.value' \
-          --output tsv)
-
-        PRINCIPAL_ID=$(az deployment group show \
-          --name "$DEPLOYMENT_NAME" \
-          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --query 'properties.outputs.containerAppPrincipalId.value' \
-          --output tsv)
+        echo "Container App URL: $CONTAINER_APP_URL"
+        echo "Principal ID: $PRINCIPAL_ID"
 
         echo "containerAppUrl=$CONTAINER_APP_URL" >> $GITHUB_OUTPUT
         echo "principalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
@@ -240,7 +219,7 @@ jobs:
     - name: Assign roles to Container App managed identity
       continue-on-error: true
       run: |
-        PRINCIPAL_ID="${{ steps.deploy-infra.outputs.principalId }}"
+        PRINCIPAL_ID="${{ steps.get-outputs.outputs.principalId }}"
         RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
 
         if [ -z "$PRINCIPAL_ID" ] || [ "$PRINCIPAL_ID" = "null" ]; then
@@ -280,5 +259,5 @@ jobs:
 
     - name: Output application URL
       run: |
-        echo "Application deployed to: ${{ steps.deploy-infra.outputs.containerAppUrl }}"
+        echo "Application deployed to: ${{ steps.get-outputs.outputs.containerAppUrl }}"
 
