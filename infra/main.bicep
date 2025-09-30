@@ -113,6 +113,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       secrets: [
         {
           name: 'mongo-connection-string'
+          #disable-next-line use-secure-value-for-secure-inputs
           value: 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosMongoCluster.name}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
         }
         {
@@ -129,6 +130,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
         {
           name: 'git-clone-url'
+          #disable-next-line use-secure-value-for-secure-inputs
           value: gitCloneUrl
         }
       ]
@@ -338,7 +340,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 // Role assignments for Container App managed identity
 
 resource containerAppResourceGroupReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, containerApp.identity.principalId, 'Reader')
+  name: guid(resourceGroup().id, containerApp.id, 'Reader')
   scope: resourceGroup()
   properties: {
     principalId: containerApp.identity.principalId
@@ -348,7 +350,7 @@ resource containerAppResourceGroupReader 'Microsoft.Authorization/roleAssignment
 }
 
 resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, containerApp.identity.principalId, 'MonitoringReader')
+  name: guid(resourceGroup().id, containerApp.id, 'MonitoringReader')
   scope: resourceGroup()
   properties: {
     principalId: containerApp.identity.principalId
@@ -357,13 +359,13 @@ resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2
   }
 }
 
-resource containerAppCostReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, containerApp.identity.principalId, 'CostManagementReader')
+module containerAppCostReader './roleAssignment.bicep' = {
+  name: 'containerAppCostReader'
   scope: subscription()
-  properties: {
+  params: {
     principalId: containerApp.identity.principalId
+    roleDefinitionId: '72d43a3d-b78b-415c-90f0-5ee7a6db6b4b'
     principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '72d43a3d-b78b-415c-90f0-5ee7a6db6b4b')
   }
 }
 
