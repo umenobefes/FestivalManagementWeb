@@ -133,12 +133,49 @@ jobs:
         echo "git-token=$(echo "$APP_SECRETS_JSON" | jq -r '.gitSettings.token')" >> $GITHUB_OUTPUT
         echo "git-clone-url=$(echo "$APP_SECRETS_JSON" | jq -r '.gitSettings.cloneUrl')" >> $GITHUB_OUTPUT
 
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Build Docker image
+      run: |
+        docker build -f FestivalManagementWeb/Dockerfile -t ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} .
+
+    - name: Login to container registry
+      run: |
+        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
+        if [ "$REGISTRY" = "ghcr.io" ]; then
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
+        else
+          echo "Error: Only GHCR (ghcr.io) is supported as container registry"
+          exit 1
+        fi
+
+    - name: Push Docker image
+      run: |
+        REPOSITORY="${{ steps.extract-params.outputs.container-registry-repository }}"
+        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
+        TARGET_IMAGE="$REGISTRY/$REPOSITORY"
+        docker tag ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} $TARGET_IMAGE:${{ github.sha }}
+        docker tag ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} $TARGET_IMAGE:latest
+        docker push $TARGET_IMAGE:${{ github.sha }}
+        docker push $TARGET_IMAGE:latest
+
     - name: Deploy Bicep template
       id: deploy-infra
       run: |
         DEPLOYMENT_NAME="deploy-$(date +%s)"
 
-        # Deploy without capturing output first
+        echo "Starting deployment: $DEPLOYMENT_NAME"
+
+        # Start deployment without waiting
         az deployment group create \
           --name "$DEPLOYMENT_NAME" \
           --resource-group ${{ steps.extract-params.outputs.resource-group }} \
@@ -153,7 +190,36 @@ jobs:
           --parameters gitAuthorName="${{ steps.extract-secrets.outputs.git-author-name }}" \
           --parameters gitAuthorEmail="${{ steps.extract-secrets.outputs.git-author-email }}" \
           --parameters gitToken="${{ steps.extract-secrets.outputs.git-token }}" \
-          --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}"
+          --parameters gitCloneUrl="${{ steps.extract-secrets.outputs.git-clone-url }}" \
+          --no-wait
+
+        echo "Deployment started, waiting for completion..."
+
+        # Poll for completion
+        while true; do
+          STATE=$(az deployment group show \
+            --name "$DEPLOYMENT_NAME" \
+            --resource-group ${{ steps.extract-params.outputs.resource-group }} \
+            --query 'properties.provisioningState' \
+            --output tsv 2>/dev/null || echo "NotFound")
+
+          echo "Deployment state: $STATE"
+
+          if [ "$STATE" = "Succeeded" ]; then
+            echo "Deployment succeeded!"
+            break
+          elif [ "$STATE" = "Failed" ] || [ "$STATE" = "Canceled" ]; then
+            echo "Deployment failed with state: $STATE"
+            az deployment operation group list \
+              --name "$DEPLOYMENT_NAME" \
+              --resource-group ${{ steps.extract-params.outputs.resource-group }} \
+              --query "[?properties.provisioningState=='Failed'].{Resource:properties.targetResource.resourceName, Error:properties.statusMessage}" \
+              --output table
+            exit 1
+          fi
+
+          sleep 15
+        done
 
         # Get outputs in separate command
         CONTAINER_APP_URL=$(az deployment group show \
@@ -207,53 +273,6 @@ jobs:
           2>&1 | grep -v "already exists" || true
 
         echo "Role assignments completed"
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Cache Docker layers
-      uses: actions/cache@v3
-      with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
-
-    - name: Build Docker image
-      run: |
-        docker build -f FestivalManagementWeb/Dockerfile -t ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} .
-
-    - name: Login to container registry
-      run: |
-        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
-        if [ "$REGISTRY" = "ghcr.io" ]; then
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
-        else
-          echo "Error: Only GHCR (ghcr.io) is supported as container registry"
-          exit 1
-        fi
-
-    - name: Push Docker image
-      run: |
-        REPOSITORY="${{ steps.extract-params.outputs.container-registry-repository }}"
-        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
-        TARGET_IMAGE="$REGISTRY/$REPOSITORY"
-        docker tag ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} $TARGET_IMAGE:${{ github.sha }}
-        docker tag ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} $TARGET_IMAGE:latest
-        docker push $TARGET_IMAGE:${{ github.sha }}
-        docker push $TARGET_IMAGE:latest
-
-    - name: Update Container App
-      run: |
-        REPOSITORY="${{ steps.extract-params.outputs.container-registry-repository }}"
-        REGISTRY="${{ steps.extract-params.outputs.container-registry-server }}"
-        TARGET_IMAGE="$REGISTRY/$REPOSITORY:${{ github.sha }}"
-        REVISION_SUFFIX="$(date +%s)-$(echo "${{ github.sha }}" | cut -c1-7)"
-        az containerapp update \
-          --name ${{ steps.extract-params.outputs.image-name }} \
-          --resource-group ${{ steps.extract-params.outputs.resource-group }} \
-          --image $TARGET_IMAGE \
-          --revision-suffix $REVISION_SUFFIX
 
     - name: Cleanup secrets
       if: always()
