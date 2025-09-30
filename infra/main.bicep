@@ -337,49 +337,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-// Role assignments for Container App managed identity
-
-resource containerAppResourceGroupReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, containerApp.id, 'Reader')
-  scope: resourceGroup()
-  properties: {
-    principalId: containerApp.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
-  }
-  dependsOn: [
-    containerApp
-  ]
-}
-
-resource containerAppMonitoringReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, containerApp.id, 'MonitoringReader')
-  scope: resourceGroup()
-  properties: {
-    principalId: containerApp.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43ffd8ad-0a53-4d32-b4f2-2184e67fc42a')
-  }
-  dependsOn: [
-    containerAppResourceGroupReader
-  ]
-}
-
-module containerAppCostReader './roleAssignment.bicep' = {
-  name: 'containerAppCostReader-${uniqueString(resourceGroup().id)}'
-  scope: subscription()
-  params: {
-    principalId: containerApp.identity.principalId
-    roleDefinitionId: '72d43a3d-b78b-415c-90f0-5ee7a6db6b4b'
-    principalType: 'ServicePrincipal'
-  }
-  dependsOn: [
-    containerAppMonitoringReader
-  ]
-}
-
 // Outputs
 output containerAppUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
 output cosmosMongoClusterName string = cosmosMongoCluster.name
+output containerAppPrincipalId string = containerApp.identity.principalId
+output containerAppName string = containerApp.name
 
 

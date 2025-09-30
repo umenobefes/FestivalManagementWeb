@@ -156,7 +156,40 @@ jobs:
           --output json)
 
         CONTAINER_APP_URL=$(echo "$OUTPUT" | jq -r '.containerAppUrl.value')
+        PRINCIPAL_ID=$(echo "$OUTPUT" | jq -r '.containerAppPrincipalId.value')
         echo "containerAppUrl=$CONTAINER_APP_URL" >> $GITHUB_OUTPUT
+        echo "principalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
+
+    - name: Assign roles to Container App managed identity
+      run: |
+        PRINCIPAL_ID="${{ steps.deploy-infra.outputs.principalId }}"
+        RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
+
+        # Wait for managed identity to propagate
+        sleep 30
+
+        # Assign Reader role on resource group
+        az role assignment create \
+          --assignee "$PRINCIPAL_ID" \
+          --role "Reader" \
+          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP" \
+          --output none || true
+
+        # Assign Monitoring Reader role on resource group
+        az role assignment create \
+          --assignee "$PRINCIPAL_ID" \
+          --role "Monitoring Reader" \
+          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP" \
+          --output none || true
+
+        # Assign Cost Management Reader role on subscription
+        az role assignment create \
+          --assignee "$PRINCIPAL_ID" \
+          --role "Cost Management Reader" \
+          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" \
+          --output none || true
+
+        echo "Role assignments completed"
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
