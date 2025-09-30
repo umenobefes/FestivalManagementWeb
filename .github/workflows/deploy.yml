@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   build-and-deploy:
@@ -173,25 +174,33 @@ jobs:
         docker push $TARGET_IMAGE:${{ github.sha }}
         docker push $TARGET_IMAGE:latest
 
-    - name: Make package public
+    - name: Make package public (if GH_PAT configured)
+      if: secrets.GH_PAT != ''
       run: |
-        PACKAGE_NAME=$(echo "${{ steps.extract-params.outputs.container-registry-repository }}" | cut -d'/' -f2)
-        echo "Setting package visibility to public: $PACKAGE_NAME"
+        REPO_FULL="${{ steps.extract-params.outputs.container-registry-repository }}"
+        OWNER=$(echo "$REPO_FULL" | cut -d'/' -f1)
+        PACKAGE_NAME=$(echo "$REPO_FULL" | cut -d'/' -f2)
 
-        gh api \
-          --method PATCH \
+        echo "Setting package visibility to public..."
+
+        # Try organization first, then user
+        if curl -s -X PATCH \
           -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          "/orgs/${{ github.repository_owner }}/packages/container/$PACKAGE_NAME" \
-          -f visibility='public' || \
-        gh api \
-          --method PATCH \
+          "https://api.github.com/orgs/$OWNER/packages/container/$PACKAGE_NAME" \
+          -d '{"visibility":"public"}' | grep -q '"visibility":"public"'; then
+          echo "✅ Package set to public (organization)"
+        elif curl -s -X PATCH \
           -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          "/users/${{ github.repository_owner }}/packages/container/$PACKAGE_NAME" \
-          -f visibility='public'
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          "https://api.github.com/users/$OWNER/packages/container/$PACKAGE_NAME" \
+          -d '{"visibility":"public"}' | grep -q '"visibility":"public"'; then
+          echo "✅ Package set to public (user)"
+        else
+          echo "⚠️  Could not set package visibility automatically"
+        fi
 
     - name: Deploy infrastructure (Cosmos DB + Environment)
       id: deploy-infrastructure
