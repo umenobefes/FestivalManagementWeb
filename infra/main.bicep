@@ -152,7 +152,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [
         {
-          name: containerAppName
+          name: 'festivalManagementWeb'
           image: '${containerRegistryServer}/${containerRegistryRepository}:${imageTag}'
           env: [
             {
