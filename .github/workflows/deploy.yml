@@ -402,6 +402,7 @@ jobs:
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --image "$IMAGE_REF" \
+            --assign-identity [system] \
             > "$UPDATE_LOG" 2>&1; then
             echo "::group::Container App image update failure"
             cat "$UPDATE_LOG"
@@ -417,46 +418,46 @@ jobs:
           --name "$APP_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --secrets \
-            ASPNETCORE_ENVIRONMENT=Production \
-            MongoDbSettings__ConnectionString="$MONGO_CONN" \
-            MongoDbSettings__DatabaseName=FestivalManagement \
-            Authentication__Google__ClientId="$GOOGLE_CLIENT_ID" \
-            Authentication__Google__ClientSecret="$GOOGLE_CLIENT_SECRET" \
-            InitialUser__Email="$INITIAL_USER_EMAIL" \
-            FreeTier__EnableBanner=true \
-            FreeTier__BudgetVcpuSeconds=180000 \
-            FreeTier__BudgetGiBSeconds=360000 \
-            FreeTier__Resource__VcpuPerReplica=0.25 \
-            FreeTier__Resource__MemoryGiBPerReplica=0.5 \
-            FreeTier__Resource__ReplicaFactor=1 \
-            FreeTier__EnforceRequestDailyCap=false \
-            FreeTier__Data__BudgetGb=100 \
-            FreeTier__Requests__Budget=2000000 \
-            FreeTier__Cosmos__Enabled=true \
-            FreeTier__Cosmos__SubscriptionId="${{ env.SUBSCRIPTION_ID }}" \
-            FreeTier__Cosmos__ResourceGroup="$RESOURCE_GROUP" \
-            FreeTier__Cosmos__AccountName="$COSMOS_NAME" \
-            FreeTier__Cosmos__DatabaseName=FestivalManagement \
-            FreeTier__Cosmos__AccountResourceId="/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME" \
-            FreeTier__Cosmos__Provisioning=vCore \
-            FreeTier__Cosmos__FreeTierStorageGb=32 \
-            FreeTier__Cosmos__FreeTierVCoreStorageGb=32 \
-            FreeTier__Cosmos__WarnRuPercent=90 \
-            FreeTier__Cosmos__WarnStoragePercent=90 \
-            FreeTier__Cosmos__RefreshMinutes=60 \
-            FreeTier__Cosmos__CollectionNames__0=TextKeyValues \
-            FreeTier__Cosmos__CollectionNames__1=ImageKeyValues \
-            AzureUsage__Enabled=true \
-            AzureUsage__ContainerAppName="$APP_NAME" \
-            AzureUsage__ResourceGroup="$RESOURCE_GROUP" \
-            AzureUsage__SubscriptionId="${{ env.SUBSCRIPTION_ID }}" \
-            AzureUsage__MetricsRefreshMinutes=10 \
-            AzureUsage__CostRefreshMinutes=360 \
-            GitSettings__RemoteName=origin \
-            GitSettings__AuthorName="$GIT_AUTHOR_NAME" \
-            GitSettings__AuthorEmail="$GIT_AUTHOR_EMAIL" \
-            GitSettings__Token="$GIT_TOKEN" \
-            GitSettings__CloneUrl="$GIT_CLONE_URL" \
+            aspnetcore-environment=Production \
+            mongo-connection-string="$MONGO_CONN" \
+            mongo-database-name=FestivalManagement \
+            google-client-id="$GOOGLE_CLIENT_ID" \
+            google-client-secret="$GOOGLE_CLIENT_SECRET" \
+            initial-user-email="$INITIAL_USER_EMAIL" \
+            freetier-enable-banner=true \
+            freetier-budget-vcpu-seconds=180000 \
+            freetier-budget-gib-seconds=360000 \
+            freetier-resource-vcpu-per-replica=0.25 \
+            freetier-resource-memory-gib-per-replica=0.5 \
+            freetier-resource-replica-factor=1 \
+            freetier-enforce-request-daily-cap=false \
+            freetier-data-budget-gb=100 \
+            freetier-requests-budget=2000000 \
+            freetier-cosmos-enabled=true \
+            freetier-cosmos-subscription-id="${{ env.SUBSCRIPTION_ID }}" \
+            freetier-cosmos-resource-group="$RESOURCE_GROUP" \
+            freetier-cosmos-account-name="$COSMOS_NAME" \
+            freetier-cosmos-database-name=FestivalManagement \
+            freetier-cosmos-account-resource-id="/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME" \
+            freetier-cosmos-provisioning=vCore \
+            freetier-cosmos-free-tier-storage-gb=32 \
+            freetier-cosmos-free-tier-vcore-storage-gb=32 \
+            freetier-cosmos-warn-ru-percent=90 \
+            freetier-cosmos-warn-storage-percent=90 \
+            freetier-cosmos-refresh-minutes=60 \
+            freetier-cosmos-collection-name-0=TextKeyValues \
+            freetier-cosmos-collection-name-1=ImageKeyValues \
+            azureusage-enabled=true \
+            azureusage-containerapp-name="$APP_NAME" \
+            azureusage-resource-group="$RESOURCE_GROUP" \
+            azureusage-subscription-id="${{ env.SUBSCRIPTION_ID }}" \
+            azureusage-metrics-refresh-minutes=10 \
+            azureusage-cost-refresh-minutes=360 \
+            gitsettings-remote-name=origin \
+            gitsettings-author-name="$GIT_AUTHOR_NAME" \
+            gitsettings-author-email="$GIT_AUTHOR_EMAIL" \
+            git-token="$GIT_TOKEN" \
+            git-clone-url="$GIT_CLONE_URL" \
           > "$SECRET_LOG" 2>&1; then
           echo "::group::Container App secret update failure"
           cat "$SECRET_LOG"
@@ -471,46 +472,46 @@ jobs:
           --name "$APP_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --set-env-vars \
-            ASPNETCORE_ENVIRONMENT=secretref:ASPNETCORE_ENVIRONMENT \
-            MongoDbSettings__ConnectionString=secretref:MongoDbSettings__ConnectionString \
-            MongoDbSettings__DatabaseName=secretref:MongoDbSettings__DatabaseName \
-            Authentication__Google__ClientId=secretref:Authentication__Google__ClientId \
-            Authentication__Google__ClientSecret=secretref:Authentication__Google__ClientSecret \
-            InitialUser__Email=secretref:InitialUser__Email \
-            FreeTier__EnableBanner=secretref:FreeTier__EnableBanner \
-            FreeTier__BudgetVcpuSeconds=secretref:FreeTier__BudgetVcpuSeconds \
-            FreeTier__BudgetGiBSeconds=secretref:FreeTier__BudgetGiBSeconds \
-            FreeTier__Resource__VcpuPerReplica=secretref:FreeTier__Resource__VcpuPerReplica \
-            FreeTier__Resource__MemoryGiBPerReplica=secretref:FreeTier__Resource__MemoryGiBPerReplica \
-            FreeTier__Resource__ReplicaFactor=secretref:FreeTier__Resource__ReplicaFactor \
-            FreeTier__EnforceRequestDailyCap=secretref:FreeTier__EnforceRequestDailyCap \
-            FreeTier__Data__BudgetGb=secretref:FreeTier__Data__BudgetGb \
-            FreeTier__Requests__Budget=secretref:FreeTier__Requests__Budget \
-            AzureUsage__Enabled=secretref:AzureUsage__Enabled \
-            AzureUsage__ContainerAppName=secretref:AzureUsage__ContainerAppName \
-            AzureUsage__ResourceGroup=secretref:AzureUsage__ResourceGroup \
-            AzureUsage__SubscriptionId=secretref:AzureUsage__SubscriptionId \
-            AzureUsage__MetricsRefreshMinutes=secretref:AzureUsage__MetricsRefreshMinutes \
-            AzureUsage__CostRefreshMinutes=secretref:AzureUsage__CostRefreshMinutes \
-            FreeTier__Cosmos__Enabled=secretref:FreeTier__Cosmos__Enabled \
-            FreeTier__Cosmos__SubscriptionId=secretref:FreeTier__Cosmos__SubscriptionId \
-            FreeTier__Cosmos__ResourceGroup=secretref:FreeTier__Cosmos__ResourceGroup \
-            FreeTier__Cosmos__AccountName=secretref:FreeTier__Cosmos__AccountName \
-            FreeTier__Cosmos__DatabaseName=secretref:FreeTier__Cosmos__DatabaseName \
-            FreeTier__Cosmos__AccountResourceId=secretref:FreeTier__Cosmos__AccountResourceId \
-            FreeTier__Cosmos__Provisioning=secretref:FreeTier__Cosmos__Provisioning \
-            FreeTier__Cosmos__FreeTierStorageGb=secretref:FreeTier__Cosmos__FreeTierStorageGb \
-            FreeTier__Cosmos__FreeTierVCoreStorageGb=secretref:FreeTier__Cosmos__FreeTierVCoreStorageGb \
-            FreeTier__Cosmos__WarnRuPercent=secretref:FreeTier__Cosmos__WarnRuPercent \
-            FreeTier__Cosmos__WarnStoragePercent=secretref:FreeTier__Cosmos__WarnStoragePercent \
-            FreeTier__Cosmos__RefreshMinutes=secretref:FreeTier__Cosmos__RefreshMinutes \
-            FreeTier__Cosmos__CollectionNames__0=secretref:FreeTier__Cosmos__CollectionNames__0 \
-            FreeTier__Cosmos__CollectionNames__1=secretref:FreeTier__Cosmos__CollectionNames__1 \
-            GitSettings__RemoteName=secretref:GitSettings__RemoteName \
-            GitSettings__AuthorName=secretref:GitSettings__AuthorName \
-            GitSettings__AuthorEmail=secretref:GitSettings__AuthorEmail \
-            GitSettings__Token=secretref:GitSettings__Token \
-            GitSettings__CloneUrl=secretref:GitSettings__CloneUrl \
+            ASPNETCORE_ENVIRONMENT=secretref:aspnetcore-environment \
+            MongoDbSettings__ConnectionString=secretref:mongo-connection-string \
+            MongoDbSettings__DatabaseName=secretref:mongo-database-name \
+            Authentication__Google__ClientId=secretref:google-client-id \
+            Authentication__Google__ClientSecret=secretref:google-client-secret \
+            InitialUser__Email=secretref:initial-user-email \
+            FreeTier__EnableBanner=secretref:freetier-enable-banner \
+            FreeTier__BudgetVcpuSeconds=secretref:freetier-budget-vcpu-seconds \
+            FreeTier__BudgetGiBSeconds=secretref:freetier-budget-gib-seconds \
+            FreeTier__Resource__VcpuPerReplica=secretref:freetier-resource-vcpu-per-replica \
+            FreeTier__Resource__MemoryGiBPerReplica=secretref:freetier-resource-memory-gib-per-replica \
+            FreeTier__Resource__ReplicaFactor=secretref:freetier-resource-replica-factor \
+            FreeTier__EnforceRequestDailyCap=secretref:freetier-enforce-request-daily-cap \
+            FreeTier__Data__BudgetGb=secretref:freetier-data-budget-gb \
+            FreeTier__Requests__Budget=secretref:freetier-requests-budget \
+            FreeTier__Cosmos__Enabled=secretref:freetier-cosmos-enabled \
+            FreeTier__Cosmos__SubscriptionId=secretref:freetier-cosmos-subscription-id \
+            FreeTier__Cosmos__ResourceGroup=secretref:freetier-cosmos-resource-group \
+            FreeTier__Cosmos__AccountName=secretref:freetier-cosmos-account-name \
+            FreeTier__Cosmos__DatabaseName=secretref:freetier-cosmos-database-name \
+            FreeTier__Cosmos__AccountResourceId=secretref:freetier-cosmos-account-resource-id \
+            FreeTier__Cosmos__Provisioning=secretref:freetier-cosmos-provisioning \
+            FreeTier__Cosmos__FreeTierStorageGb=secretref:freetier-cosmos-free-tier-storage-gb \
+            FreeTier__Cosmos__FreeTierVCoreStorageGb=secretref:freetier-cosmos-free-tier-vcore-storage-gb \
+            FreeTier__Cosmos__WarnRuPercent=secretref:freetier-cosmos-warn-ru-percent \
+            FreeTier__Cosmos__WarnStoragePercent=secretref:freetier-cosmos-warn-storage-percent \
+            FreeTier__Cosmos__RefreshMinutes=secretref:freetier-cosmos-refresh-minutes \
+            FreeTier__Cosmos__CollectionNames__0=secretref:freetier-cosmos-collection-name-0 \
+            FreeTier__Cosmos__CollectionNames__1=secretref:freetier-cosmos-collection-name-1 \
+            AzureUsage__Enabled=secretref:azureusage-enabled \
+            AzureUsage__ContainerAppName=secretref:azureusage-containerapp-name \
+            AzureUsage__ResourceGroup=secretref:azureusage-resource-group \
+            AzureUsage__SubscriptionId=secretref:azureusage-subscription-id \
+            AzureUsage__MetricsRefreshMinutes=secretref:azureusage-metrics-refresh-minutes \
+            AzureUsage__CostRefreshMinutes=secretref:azureusage-cost-refresh-minutes \
+            GitSettings__RemoteName=secretref:gitsettings-remote-name \
+            GitSettings__AuthorName=secretref:gitsettings-author-name \
+            GitSettings__AuthorEmail=secretref:gitsettings-author-email \
+            GitSettings__Token=secretref:git-token \
+            GitSettings__CloneUrl=secretref:git-clone-url \
           > "$ENV_LOG" 2>&1; then
           echo "::group::Container App env update failure"
           cat "$ENV_LOG"
