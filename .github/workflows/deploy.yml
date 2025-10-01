@@ -351,43 +351,137 @@ jobs:
         DEPLOYMENT_NAME="app-${{ github.run_number }}-${{ github.run_attempt }}"
         IMAGE_TAG="latest"
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+        IMAGE_REF="${CONTAINER_REGISTRY_SERVER}/${CONTAINER_REGISTRY_REPOSITORY}:${IMAGE_TAG}"
 
-        DEPLOY_LOG=$(mktemp)
-        if ! az deployment group create \
-          --name "$DEPLOYMENT_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --template-file infra/application.bicep \
-          --parameters \
-            containerAppName="$APP_NAME" \
-            location="$LOCATION" \
-            environmentId="$ENVIRONMENT_ID" \
-            cosmosDbAccountName="$COSMOS_NAME" \
-            imageTag="$IMAGE_TAG" \
-            containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
-            containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-            mongoConnectionString="$MONGO_CONN" \
-            googleClientId="$GOOGLE_CLIENT_ID" \
-            googleClientSecret="$GOOGLE_CLIENT_SECRET" \
-            initialUserEmail="$INITIAL_USER_EMAIL" \
-            gitAuthorName="$GIT_AUTHOR_NAME" \
-            gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
-            gitToken="$GIT_TOKEN" \
-            gitCloneUrl="$GIT_CLONE_URL" \
-          > "$DEPLOY_LOG" 2>&1; then
-          echo "::group::Container App deployment failure"
-          cat "$DEPLOY_LOG"
-          echo "::endgroup::"
-          rm -f "$DEPLOY_LOG"
-
-          echo "Deployment failed, retrieving operation diagnostics..."
-          az deployment operation group list \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$DEPLOYMENT_NAME" \
-            -o json || true
-          exit 1
+        APP_EXISTS=false
+        if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+          APP_EXISTS=true
         fi
 
-        rm -f "$DEPLOY_LOG"
+        if [ "$APP_EXISTS" = false ]; then
+          DEPLOY_LOG=$(mktemp)
+          if ! az deployment group create \
+            --name "$DEPLOYMENT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/application.bicep \
+            --parameters \
+              containerAppName="$APP_NAME" \
+              location="$LOCATION" \
+              environmentId="$ENVIRONMENT_ID" \
+              cosmosDbAccountName="$COSMOS_NAME" \
+              imageTag="$IMAGE_TAG" \
+              containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
+              containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
+              mongoConnectionString="$MONGO_CONN" \
+              googleClientId="$GOOGLE_CLIENT_ID" \
+              googleClientSecret="$GOOGLE_CLIENT_SECRET" \
+              initialUserEmail="$INITIAL_USER_EMAIL" \
+              gitAuthorName="$GIT_AUTHOR_NAME" \
+              gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
+              gitToken="$GIT_TOKEN" \
+              gitCloneUrl="$GIT_CLONE_URL" \
+            > "$DEPLOY_LOG" 2>&1; then
+            echo "::group::Container App deployment failure"
+            cat "$DEPLOY_LOG"
+            echo "::endgroup::"
+            rm -f "$DEPLOY_LOG"
+
+            echo "Deployment failed, retrieving operation diagnostics..."
+            az deployment operation group list \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$DEPLOYMENT_NAME" \
+              -o json || true
+            exit 1
+          fi
+          rm -f "$DEPLOY_LOG"
+        else
+          UPDATE_LOG=$(mktemp)
+          if ! az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE_REF" \
+            > "$UPDATE_LOG" 2>&1; then
+            echo "::group::Container App image update failure"
+            cat "$UPDATE_LOG"
+            echo "::endgroup::"
+            rm -f "$UPDATE_LOG"
+            exit 1
+          fi
+          rm -f "$UPDATE_LOG"
+        fi
+
+        SECRET_LOG=$(mktemp)
+        if ! az containerapp secret set \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --secrets \
+            mongo-connection-string="$MONGO_CONN" \
+            google-client-id="$GOOGLE_CLIENT_ID" \
+            google-client-secret="$GOOGLE_CLIENT_SECRET" \
+            git-token="$GIT_TOKEN" \
+            git-clone-url="$GIT_CLONE_URL" \
+          > "$SECRET_LOG" 2>&1; then
+          echo "::group::Container App secret update failure"
+          cat "$SECRET_LOG"
+          echo "::endgroup::"
+          rm -f "$SECRET_LOG"
+          exit 1
+        fi
+        rm -f "$SECRET_LOG"
+
+        ENV_LOG=$(mktemp)
+        if ! az containerapp update \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --set-env-vars \
+            ASPNETCORE_ENVIRONMENT=Production \
+            MongoDbSettings__ConnectionString=secretref:mongo-connection-string \
+            MongoDbSettings__DatabaseName=FestivalManagement \
+            Authentication__Google__ClientId=secretref:google-client-id \
+            Authentication__Google__ClientSecret=secretref:google-client-secret \
+            InitialUser__Email="$INITIAL_USER_EMAIL" \
+            FreeTier__EnableBanner=true \
+            FreeTier__BudgetVcpuSeconds=180000 \
+            FreeTier__BudgetGiBSeconds=360000 \
+            FreeTier__Resource__VcpuPerReplica=0.25 \
+            FreeTier__Resource__MemoryGiBPerReplica=0.5 \
+            FreeTier__Resource__ReplicaFactor=1 \
+            AzureUsage__Enabled=true \
+            AzureUsage__ContainerAppName="$APP_NAME" \
+            AzureUsage__ResourceGroup="$RESOURCE_GROUP" \
+            AzureUsage__SubscriptionId="${{ env.SUBSCRIPTION_ID }}" \
+            AzureUsage__MetricsRefreshMinutes=10 \
+            AzureUsage__CostRefreshMinutes=360 \
+            FreeTier__Cosmos__Enabled=true \
+            FreeTier__Cosmos__SubscriptionId="${{ env.SUBSCRIPTION_ID }}" \
+            FreeTier__Cosmos__ResourceGroup="$RESOURCE_GROUP" \
+            FreeTier__Cosmos__AccountName="$COSMOS_NAME" \
+            FreeTier__Cosmos__DatabaseName=FestivalManagement \
+            FreeTier__Cosmos__AccountResourceId="/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME" \
+            FreeTier__EnforceRequestDailyCap=false \
+            FreeTier__Data__BudgetGb=100 \
+            FreeTier__Requests__Budget=2000000 \
+            FreeTier__Cosmos__Provisioning=vCore \
+            FreeTier__Cosmos__FreeTierStorageGb=32 \
+            FreeTier__Cosmos__FreeTierVCoreStorageGb=32 \
+            FreeTier__Cosmos__WarnRuPercent=90 \
+            FreeTier__Cosmos__WarnStoragePercent=90 \
+            FreeTier__Cosmos__RefreshMinutes=60 \
+            GitSettings__RemoteName=origin \
+            FreeTier__Cosmos__CollectionNames__0=TextKeyValues \
+            FreeTier__Cosmos__CollectionNames__1=ImageKeyValues \
+            GitSettings__AuthorName="$GIT_AUTHOR_NAME" \
+            GitSettings__AuthorEmail="$GIT_AUTHOR_EMAIL" \
+            GitSettings__Token=secretref:git-token \
+            GitSettings__CloneUrl=secretref:git-clone-url \
+          > "$ENV_LOG" 2>&1; then
+          echo "::group::Container App env update failure"
+          cat "$ENV_LOG"
+          echo "::endgroup::"
+          rm -f "$ENV_LOG"
+          exit 1
+        fi
+        rm -f "$ENV_LOG"
 
         APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
         PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
