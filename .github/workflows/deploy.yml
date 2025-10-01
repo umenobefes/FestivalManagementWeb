@@ -410,14 +410,26 @@ jobs:
             exit 1
           fi
           rm -f "$UPDATE_LOG"
-
-          echo "Ensuring system-assigned identity is enabled..."
-          az containerapp identity assign \
-            --name "$APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --system-assigned \
-            || echo "Identity may already be assigned or command failed"
         fi
+
+        # Ensure Managed Identity is enabled (for both new and existing apps)
+        echo "Ensuring system-assigned managed identity is enabled..."
+        IDENTITY_LOG=$(mktemp)
+        if az containerapp identity assign \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --system-assigned \
+          > "$IDENTITY_LOG" 2>&1; then
+          echo "✅ Managed identity enabled successfully"
+        else
+          if grep -qi "already exists\|already assigned" "$IDENTITY_LOG"; then
+            echo "ℹ️  Managed identity already enabled"
+          else
+            echo "::warning::Failed to enable managed identity"
+            cat "$IDENTITY_LOG"
+          fi
+        fi
+        rm -f "$IDENTITY_LOG"
 
         SECRET_LOG=$(mktemp)
         if ! az containerapp secret set \
@@ -540,35 +552,44 @@ jobs:
         RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
 
         if [ -z "$PRINCIPAL_ID" ] || [ "$PRINCIPAL_ID" = "null" ]; then
-          echo "Warning: Principal ID not found, skipping role assignments"
+          echo "::warning::Principal ID not found, skipping role assignments"
+          echo "Please manually enable Managed Identity in Azure Portal:"
+          echo "  Container App → Security → Identity → System assigned → Status: ON"
           exit 0
         fi
 
+        echo "Managed Identity Principal ID: $PRINCIPAL_ID"
         echo "Waiting for managed identity to propagate..."
         sleep 30
 
-        echo "Assigning Reader role..."
-        az role assignment create \
-          --assignee "$PRINCIPAL_ID" \
-          --role "Reader" \
-          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP" \
-          2>&1 | grep -v "already exists" || true
+        # Function to assign role with better error handling
+        assign_role() {
+          local ROLE=$1
+          local SCOPE=$2
+          echo "Assigning $ROLE role..."
+          ROLE_LOG=$(mktemp)
+          if az role assignment create \
+            --assignee "$PRINCIPAL_ID" \
+            --role "$ROLE" \
+            --scope "$SCOPE" \
+            > "$ROLE_LOG" 2>&1; then
+            echo "✅ $ROLE role assigned successfully"
+          else
+            if grep -qi "already exists" "$ROLE_LOG"; then
+              echo "ℹ️  $ROLE role already assigned"
+            else
+              echo "::warning::Failed to assign $ROLE role"
+              cat "$ROLE_LOG"
+            fi
+          fi
+          rm -f "$ROLE_LOG"
+        }
 
-        echo "Assigning Monitoring Reader role..."
-        az role assignment create \
-          --assignee "$PRINCIPAL_ID" \
-          --role "Monitoring Reader" \
-          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP" \
-          2>&1 | grep -v "already exists" || true
+        assign_role "Reader" "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP"
+        assign_role "Monitoring Reader" "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP"
+        assign_role "Cost Management Reader" "/subscriptions/${{ env.SUBSCRIPTION_ID }}"
 
-        echo "Assigning Cost Management Reader role..."
-        az role assignment create \
-          --assignee "$PRINCIPAL_ID" \
-          --role "Cost Management Reader" \
-          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" \
-          2>&1 | grep -v "already exists" || true
-
-        echo "Role assignments completed"
+        echo "✅ Role assignment process completed"
 
     - name: Cleanup secrets
       if: always()
