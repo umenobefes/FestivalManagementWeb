@@ -2,6 +2,15 @@
 
 # このステージは、VS から高速モードで実行するときに使用されます (デバッグ構成の既定値)
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+USER root
+RUN apt-get update && apt-get install -y \
+    libfontconfig1 \
+    libfreetype6 \
+    libx11-6 \
+    libxcb1 \
+    libxext6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
 USER $APP_UID
 WORKDIR /app
 EXPOSE 8080

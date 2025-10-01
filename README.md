@@ -53,12 +53,63 @@ Run the same workflow with **Run workflow** in GitHub Actions to override items 
 ## Bicep Deployment Details
 The template at `infra/main.bicep` provisions:
 - Azure Container Apps managed environment
-- Azure Cosmos DB (MongoDB API) configured for the Free Tier
+- Azure Cosmos DB (MongoDB API, vCore) configured for the Free Tier
 - Application Insights + Log Analytics workspace
-- Container App with system-assigned identity and role assignments (Reader, Monitoring Reader, Cost Management Reader)
+- Container App with system-assigned identity
 - Supporting configuration (secrets, environment variables, scaling rules)
 
 > The container registry itself is **not** created by Bicep. Images must exist in GHCR (`ghcr.io/<owner>/<repo>:<tag>`) before deployment. The workflow already publishes the image and passes the resolved name to the Bicep deployment.
+
+## Post-Deployment Setup: Role Assignments
+
+After the first deployment, you must **manually assign Azure roles** to the Container App's Managed Identity to enable usage monitoring and cost tracking.
+
+### Required Roles
+
+The Container App needs the following roles to query Azure metrics and cost data:
+
+1. **Reader** - Access to resource metadata and Cosmos DB information
+2. **Monitoring Reader** - Access to Azure Monitor metrics (CPU, memory, requests, data transfer)
+3. **Cost Management Reader** - Access to Azure Cost Management data (vCPU-seconds, GiB-seconds)
+
+### Assignment Steps
+
+1. Open **Azure Portal** → Navigate to your **Container App** (`<namePrefix>-app`)
+2. Go to **Security** → **Identity** in the left menu
+3. Verify **System assigned** identity **Status** is **On** (enabled automatically by deployment)
+4. Click **Azure role assignments** button
+5. Click **+ Add role assignment** and add each of the following:
+
+   **① Reader Role**
+   - Scope: **Resource group**
+   - Subscription: Select your subscription
+   - Resource group: `rg-<namePrefix>`
+   - Role: **Reader**
+   - Click **Save**
+
+   **② Monitoring Reader Role**
+   - Scope: **Resource group**
+   - Subscription: Select your subscription
+   - Resource group: `rg-<namePrefix>`
+   - Role: **Monitoring Reader**
+   - Click **Save**
+
+   **③ Cost Management Reader Role**
+   - Scope: **Subscription**
+   - Subscription: Select your subscription
+   - Role: **Cost Management Reader**
+   - Click **Save**
+
+> **Note**: These role assignments are **permanent** and only need to be configured once. Future deployments will not require this step.
+
+### Verification
+
+After assigning roles, the Container App can access:
+- Azure Monitor metrics for Container Apps (Requests, TxBytes, CPU, Memory)
+- Cosmos DB vCore metrics (StorageUsed, CpuPercent, MemoryPercent)
+- Azure Cost Management data for usage tracking
+
+The usage banner and Cosmos DB monitoring will start working within a few minutes after role assignment.
 
 ## Free-Tier Usage Banner
 The web app can display a banner showing estimated remaining free-tier capacity for Azure Container Apps.

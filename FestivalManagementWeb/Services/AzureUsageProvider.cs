@@ -91,97 +91,102 @@ namespace FestivalManagementWeb.Services
         {
             var o = _options.CurrentValue;
             if (!o.Enabled) return (0, 0);
-            if (string.IsNullOrWhiteSpace(o.SubscriptionId))
-                throw new InvalidOperationException("AzureUsage: SubscriptionId is required for cost query.");
 
+            var rid = GetResourceId();
             var (start, end) = MonthToDate();
-            // Cost Management Query (Usage) MTD grouped by Meter
-            var api = $"https://management.azure.com/subscriptions/{o.SubscriptionId}/providers/Microsoft.CostManagement/query?api-version=2024-07-01";
 
-            object serviceNameFilter = new
-            {
-                dimensions = new
-                {
-                    name = "ServiceName",
-                    operatorProperty = "In",
-                    values = new[] { "Azure Container Apps" }
-                }
-            };
+            // Get Container App configuration to retrieve CPU and Memory allocation
+            var (vcpuPerReplica, memoryGiBPerReplica) = await GetContainerAppResourceConfigAsync(rid, ct);
 
-            object? resourceFilter = null;
-            var ridForCost = !string.IsNullOrWhiteSpace(o.ContainerAppResourceId) ? o.ContainerAppResourceId : null;
-            if (string.IsNullOrWhiteSpace(ridForCost))
-            {
-                try { ridForCost = GetResourceId(); } catch { /* fall back to RG */ }
-            }
-            if (!string.IsNullOrWhiteSpace(ridForCost))
-            {
-                resourceFilter = new
-                {
-                    dimensions = new
-                    {
-                        name = "ResourceId",
-                        operatorProperty = "In",
-                        values = new[] { ridForCost! }
-                    }
-                };
-            }
-            else if (!string.IsNullOrWhiteSpace(o.ResourceGroup))
-            {
-                resourceFilter = new
-                {
-                    dimensions = new
-                    {
-                        name = "ResourceGroupName",
-                        operatorProperty = "In",
-                        values = new[] { o.ResourceGroup! }
-                    }
-                };
-            }
+            // Get Replica Count metrics month-to-date
+            var startIso = Uri.EscapeDataString(start.ToString("O"));
+            var endIso = Uri.EscapeDataString(end.ToString("O"));
+            var api = $"https://management.azure.com{rid}/providers/microsoft.insights/metrics" +
+                      $"?metricnames=Replicas&aggregation=Average&timespan={startIso}/{endIso}&interval=PT1H&api-version=2018-01-01";
 
-            object filterObject = resourceFilter == null ? serviceNameFilter : new { and = new object[] { serviceNameFilter, resourceFilter } };
-
-            var body = new
-            {
-                type = "Usage",
-                timeframe = "Custom",
-                timePeriod = new { from = start.ToString("o"), to = end.ToString("o") },
-                dataset = new
-                {
-                    aggregation = new { totalCost = new { name = "PreTaxCost", function = "Sum" } },
-                    granularity = "None",
-                    grouping = new[] { new { type = "Dimension", name = "Meter" }, new { type = "Dimension", name = "ServiceName" } },
-                    filter = filterObject
-                }
-            };
             var token = await GetTokenAsync("https://management.azure.com/.default", ct);
-            using var req = new HttpRequestMessage(HttpMethod.Post, api)
-            {
-                Content = JsonContent.Create(body)
-            };
+            using var req = new HttpRequestMessage(HttpMethod.Get, api);
             req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             using var res = await _http.SendAsync(req, ct);
             res.EnsureSuccessStatusCode();
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStreamAsync(ct));
-            double vcpu = 0, gib = 0;
-            if (doc.RootElement.TryGetProperty("properties", out var prop) && prop.TryGetProperty("rows", out var rows))
+
+            // Calculate vCPU-seconds and GiB-seconds from replica count over time
+            double totalVcpuSeconds = 0;
+            double totalGiBSeconds = 0;
+
+            var root = doc.RootElement;
+            var val = root.GetProperty("value").EnumerateArray().FirstOrDefault(v => v.GetProperty("name").GetProperty("value").GetString() == "Replicas");
+            if (val.ValueKind != JsonValueKind.Undefined)
             {
-                foreach (var row in rows.EnumerateArray())
+                var dataArr = val.GetProperty("timeseries")[0].GetProperty("data").EnumerateArray();
+                foreach (var d in dataArr)
                 {
-                    // rows schema can vary; fallback to probing dimension values
-                    var arr = row.EnumerateArray().ToArray();
-                    // Heuristics: Look for Meter names containing 'vCPU (seconds)' or 'Memory (GiB-seconds)'
-                    var meter = arr.Select(e => e.ToString()).FirstOrDefault(s => s?.Contains("vCPU", StringComparison.OrdinalIgnoreCase) == true || s?.Contains("GiB-seconds", StringComparison.OrdinalIgnoreCase) == true || s?.Contains("GiB", StringComparison.OrdinalIgnoreCase) == true);
-                    var qty = arr.Select(e => { double d; return double.TryParse(e.ToString(), out d) ? d : (double?)null; })
-                                 .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty(0).Max();
-                    if (meter != null)
+                    if (d.TryGetProperty("average", out var avg) && avg.ValueKind == JsonValueKind.Number)
                     {
-                        if (meter.Contains("vCPU", StringComparison.OrdinalIgnoreCase)) vcpu += qty;
-                        else if (meter.Contains("GiB", StringComparison.OrdinalIgnoreCase)) gib += qty;
+                        var replicaCount = avg.GetDouble();
+                        // Each data point represents 1 hour (3600 seconds)
+                        totalVcpuSeconds += replicaCount * 3600 * vcpuPerReplica;
+                        totalGiBSeconds += replicaCount * 3600 * memoryGiBPerReplica;
                     }
                 }
             }
-            return (vcpu, gib);
+
+            return (totalVcpuSeconds, totalGiBSeconds);
+        }
+
+        private async Task<(double vcpu, double memoryGiB)> GetContainerAppResourceConfigAsync(string resourceId, CancellationToken ct)
+        {
+            var api = $"https://management.azure.com{resourceId}?api-version=2023-05-01";
+            var token = await GetTokenAsync("https://management.azure.com/.default", ct);
+            using var req = new HttpRequestMessage(HttpMethod.Get, api);
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            using var res = await _http.SendAsync(req, ct);
+            res.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStreamAsync(ct));
+
+            // Extract CPU and Memory from template.containers[0].resources
+            var root = doc.RootElement;
+            if (root.TryGetProperty("properties", out var props) &&
+                props.TryGetProperty("template", out var template) &&
+                template.TryGetProperty("containers", out var containers) &&
+                containers.GetArrayLength() > 0)
+            {
+                var container = containers[0];
+                if (container.TryGetProperty("resources", out var resources))
+                {
+                    double vcpu = 0.25; // default
+                    double memoryGiB = 0.5; // default
+
+                    if (resources.TryGetProperty("cpu", out var cpuProp))
+                    {
+                        var cpuStr = cpuProp.GetString();
+                        if (!string.IsNullOrEmpty(cpuStr) && double.TryParse(cpuStr, out var cpuVal))
+                        {
+                            vcpu = cpuVal;
+                        }
+                    }
+
+                    if (resources.TryGetProperty("memory", out var memProp))
+                    {
+                        var memStr = memProp.GetString();
+                        if (!string.IsNullOrEmpty(memStr))
+                        {
+                            // Memory is in format like "0.5Gi" or "1Gi"
+                            memStr = memStr.Replace("Gi", "").Replace("gi", "").Trim();
+                            if (double.TryParse(memStr, out var memVal))
+                            {
+                                memoryGiB = memVal;
+                            }
+                        }
+                    }
+
+                    return (vcpu, memoryGiB);
+                }
+            }
+
+            // Fallback to defaults if not found
+            return (0.25, 0.5);
         }
     }
 }

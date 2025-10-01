@@ -470,7 +470,7 @@ jobs:
             azureusage-resource-group="$RESOURCE_GROUP" \
             azureusage-subscription-id="${{ env.SUBSCRIPTION_ID }}" \
             azureusage-metrics-refresh-minutes=10 \
-            azureusage-cost-refresh-minutes=360 \
+            azureusage-cost-refresh-minutes=180 \
             gitsettings-remote-name=origin \
             gitsettings-author-name="$GIT_AUTHOR_NAME" \
             gitsettings-author-email="$GIT_AUTHOR_EMAIL" \
@@ -545,51 +545,20 @@ jobs:
         echo "containerAppUrl=https://$APP_URL" >> "$GITHUB_OUTPUT"
         echo "containerAppPrincipalId=$PRINCIPAL_ID" >> "$GITHUB_OUTPUT"
 
-    - name: Assign roles to Container App managed identity
-      continue-on-error: true
-      run: |
-        PRINCIPAL_ID="${{ steps.deploy-application.outputs.containerAppPrincipalId }}"
-        RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
-
         if [ -z "$PRINCIPAL_ID" ] || [ "$PRINCIPAL_ID" = "null" ]; then
-          echo "::warning::Principal ID not found, skipping role assignments"
-          echo "Please manually enable Managed Identity in Azure Portal:"
-          echo "  Container App → Security → Identity → System assigned → Status: ON"
-          exit 0
+          echo "⚠️  WARNING: Managed Identity Principal ID not found"
+          echo "Please verify Managed Identity is enabled in Azure Portal"
+        else
+          echo "✅ Managed Identity Principal ID: $PRINCIPAL_ID"
+          echo ""
+          echo "📋 Post-Deployment Action Required:"
+          echo "   Manually assign the following roles in Azure Portal:"
+          echo "   1. Reader (Resource Group scope)"
+          echo "   2. Monitoring Reader (Resource Group scope)"
+          echo "   3. Cost Management Reader (Subscription scope)"
+          echo ""
+          echo "   See README.md 'Post-Deployment Setup: Role Assignments' for detailed steps."
         fi
-
-        echo "Managed Identity Principal ID: $PRINCIPAL_ID"
-        echo "Waiting for managed identity to propagate..."
-        sleep 30
-
-        # Function to assign role with better error handling
-        assign_role() {
-          local ROLE=$1
-          local SCOPE=$2
-          echo "Assigning $ROLE role..."
-          ROLE_LOG=$(mktemp)
-          if az role assignment create \
-            --assignee "$PRINCIPAL_ID" \
-            --role "$ROLE" \
-            --scope "$SCOPE" \
-            > "$ROLE_LOG" 2>&1; then
-            echo "✅ $ROLE role assigned successfully"
-          else
-            if grep -qi "already exists" "$ROLE_LOG"; then
-              echo "ℹ️  $ROLE role already assigned"
-            else
-              echo "::warning::Failed to assign $ROLE role"
-              cat "$ROLE_LOG"
-            fi
-          fi
-          rm -f "$ROLE_LOG"
-        }
-
-        assign_role "Reader" "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP"
-        assign_role "Monitoring Reader" "/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP"
-        assign_role "Cost Management Reader" "/subscriptions/${{ env.SUBSCRIPTION_ID }}"
-
-        echo "✅ Role assignment process completed"
 
     - name: Cleanup secrets
       if: always()
