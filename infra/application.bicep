@@ -19,9 +19,6 @@ param containerRegistryServer string = 'ghcr.io'
 @description('Container registry repository')
 param containerRegistryRepository string
 
-@description('Scale down to zero cooldown in seconds (default: 300 = 5 minutes)')
-param scaleDownToZeroCooldownInSeconds int = 300
-
 @description('MongoDB connection string for the application')
 @secure()
 param mongoConnectionString string
@@ -272,7 +269,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       scale: {
         minReplicas: 0
         maxReplicas: 1
-        cooldownPeriod: scaleDownToZeroCooldownInSeconds
         rules: [
           {
             name: 'http-rule'
