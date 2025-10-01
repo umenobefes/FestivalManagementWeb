@@ -339,6 +339,8 @@ jobs:
         IMAGE_TAG="latest"
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
+        DEPLOY_LOG=$(mktemp)
+
         if ! az deployment group create \
           --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
@@ -359,7 +361,12 @@ jobs:
             gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
             gitToken="$GIT_TOKEN" \
             gitCloneUrl="$GIT_CLONE_URL" \
-          --verbose; then
+          > "$DEPLOY_LOG" 2>&1; then
+          echo "::group::Container App deployment failure"
+          cat "$DEPLOY_LOG"
+          echo "::endgroup::"
+          rm -f "$DEPLOY_LOG"
+
           echo "Deployment failed, retrieving operation diagnostics..."
           az deployment operation group list \
             --resource-group "$RESOURCE_GROUP" \
@@ -368,6 +375,8 @@ jobs:
             -o jsonc || true
           exit 1
         fi
+
+        rm -f "$DEPLOY_LOG"
 
         APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
         PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
