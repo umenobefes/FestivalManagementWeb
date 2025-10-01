@@ -65,163 +65,163 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       secrets: [
         {
-          name: 'aspnetcore-environment'
+          name: 'ASPNETCORE_ENVIRONMENT'
           value: 'Production'
         }
         {
-          name: 'mongo-connection-string'
+          name: 'MongoDbSettings__ConnectionString'
           value: mongoConnectionString
         }
         {
-          name: 'mongo-database-name'
+          name: 'MongoDbSettings__DatabaseName'
           value: 'FestivalManagement'
         }
         {
-          name: 'google-client-id'
+          name: 'Authentication__Google__ClientId'
           value: googleClientId
         }
         {
-          name: 'google-client-secret'
+          name: 'Authentication__Google__ClientSecret'
           value: googleClientSecret
         }
         {
-          name: 'initial-user-email'
+          name: 'InitialUser__Email'
           value: initialUserEmail
         }
         {
-          name: 'freetier-enable-banner'
+          name: 'FreeTier__EnableBanner'
           value: 'true'
         }
         {
-          name: 'freetier-budget-vcpu-seconds'
+          name: 'FreeTier__BudgetVcpuSeconds'
           value: '180000'
         }
         {
-          name: 'freetier-budget-gib-seconds'
+          name: 'FreeTier__BudgetGiBSeconds'
           value: '360000'
         }
         {
-          name: 'freetier-resource-vcpu-per-replica'
+          name: 'FreeTier__Resource__VcpuPerReplica'
           value: '0.25'
         }
         {
-          name: 'freetier-resource-memory-gib-per-replica'
+          name: 'FreeTier__Resource__MemoryGiBPerReplica'
           value: '0.5'
         }
         {
-          name: 'freetier-resource-replica-factor'
+          name: 'FreeTier__Resource__ReplicaFactor'
           value: '1'
         }
         {
-          name: 'freetier-enforce-request-daily-cap'
+          name: 'FreeTier__EnforceRequestDailyCap'
           value: 'false'
         }
         {
-          name: 'freetier-data-budget-gb'
+          name: 'FreeTier__Data__BudgetGb'
           value: '100'
         }
         {
-          name: 'freetier-requests-budget'
+          name: 'FreeTier__Requests__Budget'
           value: '2000000'
         }
         {
-          name: 'freetier-cosmos-enabled'
+          name: 'FreeTier__Cosmos__Enabled'
           value: 'true'
         }
         {
-          name: 'freetier-cosmos-subscription-id'
+          name: 'FreeTier__Cosmos__SubscriptionId'
           value: subscription().subscriptionId
         }
         {
-          name: 'freetier-cosmos-resource-group'
+          name: 'FreeTier__Cosmos__ResourceGroup'
           value: resourceGroup().name
         }
         {
-          name: 'freetier-cosmos-account-name'
+          name: 'FreeTier__Cosmos__AccountName'
           value: cosmosDbAccountName
         }
         {
-          name: 'freetier-cosmos-database-name'
+          name: 'FreeTier__Cosmos__DatabaseName'
           value: 'FestivalManagement'
         }
         {
-          name: 'freetier-cosmos-account-resource-id'
+          name: 'FreeTier__Cosmos__AccountResourceId'
           value: cosmosMongoCluster.id
         }
         {
-          name: 'freetier-cosmos-provisioning'
+          name: 'FreeTier__Cosmos__Provisioning'
           value: 'vCore'
         }
         {
-          name: 'freetier-cosmos-free-tier-storage-gb'
+          name: 'FreeTier__Cosmos__FreeTierStorageGb'
           value: '32'
         }
         {
-          name: 'freetier-cosmos-free-tier-vcore-storage-gb'
+          name: 'FreeTier__Cosmos__FreeTierVCoreStorageGb'
           value: '32'
         }
         {
-          name: 'freetier-cosmos-warn-ru-percent'
+          name: 'FreeTier__Cosmos__WarnRuPercent'
           value: '90'
         }
         {
-          name: 'freetier-cosmos-warn-storage-percent'
+          name: 'FreeTier__Cosmos__WarnStoragePercent'
           value: '90'
         }
         {
-          name: 'freetier-cosmos-refresh-minutes'
+          name: 'FreeTier__Cosmos__RefreshMinutes'
           value: '60'
         }
         {
-          name: 'azureusage-enabled'
-          value: 'true'
-        }
-        {
-          name: 'azureusage-containerapp-name'
-          value: containerAppName
-        }
-        {
-          name: 'azureusage-resource-group'
-          value: resourceGroup().name
-        }
-        {
-          name: 'azureusage-subscription-id'
-          value: subscription().subscriptionId
-        }
-        {
-          name: 'azureusage-metrics-refresh-minutes'
-          value: '10'
-        }
-        {
-          name: 'azureusage-cost-refresh-minutes'
-          value: '360'
-        }
-        {
-          name: 'gitsettings-remote-name'
-          value: 'origin'
-        }
-        {
-          name: 'freetier-cosmos-collection-name-0'
+          name: 'FreeTier__Cosmos__CollectionNames__0'
           value: 'TextKeyValues'
         }
         {
-          name: 'freetier-cosmos-collection-name-1'
+          name: 'FreeTier__Cosmos__CollectionNames__1'
           value: 'ImageKeyValues'
         }
         {
-          name: 'gitsettings-author-name'
+          name: 'AzureUsage__Enabled'
+          value: 'true'
+        }
+        {
+          name: 'AzureUsage__ContainerAppName'
+          value: containerAppName
+        }
+        {
+          name: 'AzureUsage__ResourceGroup'
+          value: resourceGroup().name
+        }
+        {
+          name: 'AzureUsage__SubscriptionId'
+          value: subscription().subscriptionId
+        }
+        {
+          name: 'AzureUsage__MetricsRefreshMinutes'
+          value: '10'
+        }
+        {
+          name: 'AzureUsage__CostRefreshMinutes'
+          value: '360'
+        }
+        {
+          name: 'GitSettings__RemoteName'
+          value: 'origin'
+        }
+        {
+          name: 'GitSettings__AuthorName'
           value: gitAuthorName
         }
         {
-          name: 'gitsettings-author-email'
+          name: 'GitSettings__AuthorEmail'
           value: gitAuthorEmail
         }
         {
-          name: 'git-token'
+          name: 'GitSettings__Token'
           value: gitToken
         }
         {
-          name: 'git-clone-url'
+          name: 'GitSettings__CloneUrl'
           #disable-next-line use-secure-value-for-secure-inputs
           value: gitCloneUrl
         }
@@ -246,163 +246,163 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             {
               name: 'ASPNETCORE_ENVIRONMENT'
-              secretRef: 'aspnetcore-environment'
+              secretRef: 'ASPNETCORE_ENVIRONMENT'
             }
             {
               name: 'MongoDbSettings__ConnectionString'
-              secretRef: 'mongo-connection-string'
+              secretRef: 'MongoDbSettings__ConnectionString'
             }
             {
               name: 'MongoDbSettings__DatabaseName'
-              secretRef: 'mongo-database-name'
+              secretRef: 'MongoDbSettings__DatabaseName'
             }
             {
               name: 'Authentication__Google__ClientId'
-              secretRef: 'google-client-id'
+              secretRef: 'Authentication__Google__ClientId'
             }
             {
               name: 'Authentication__Google__ClientSecret'
-              secretRef: 'google-client-secret'
+              secretRef: 'Authentication__Google__ClientSecret'
             }
             {
               name: 'InitialUser__Email'
-              secretRef: 'initial-user-email'
+              secretRef: 'InitialUser__Email'
             }
             {
               name: 'FreeTier__EnableBanner'
-              secretRef: 'freetier-enable-banner'
+              secretRef: 'FreeTier__EnableBanner'
             }
             {
               name: 'FreeTier__BudgetVcpuSeconds'
-              secretRef: 'freetier-budget-vcpu-seconds'
+              secretRef: 'FreeTier__BudgetVcpuSeconds'
             }
             {
               name: 'FreeTier__BudgetGiBSeconds'
-              secretRef: 'freetier-budget-gib-seconds'
+              secretRef: 'FreeTier__BudgetGiBSeconds'
             }
             {
               name: 'FreeTier__Resource__VcpuPerReplica'
-              secretRef: 'freetier-resource-vcpu-per-replica'
+              secretRef: 'FreeTier__Resource__VcpuPerReplica'
             }
             {
               name: 'FreeTier__Resource__MemoryGiBPerReplica'
-              secretRef: 'freetier-resource-memory-gib-per-replica'
+              secretRef: 'FreeTier__Resource__MemoryGiBPerReplica'
             }
             {
               name: 'FreeTier__Resource__ReplicaFactor'
-              secretRef: 'freetier-resource-replica-factor'
+              secretRef: 'FreeTier__Resource__ReplicaFactor'
             }
             {
               name: 'FreeTier__EnforceRequestDailyCap'
-              secretRef: 'freetier-enforce-request-daily-cap'
+              secretRef: 'FreeTier__EnforceRequestDailyCap'
             }
             {
               name: 'FreeTier__Data__BudgetGb'
-              secretRef: 'freetier-data-budget-gb'
+              secretRef: 'FreeTier__Data__BudgetGb'
             }
             {
               name: 'FreeTier__Requests__Budget'
-              secretRef: 'freetier-requests-budget'
+              secretRef: 'FreeTier__Requests__Budget'
             }
             {
               name: 'FreeTier__Cosmos__Enabled'
-              secretRef: 'freetier-cosmos-enabled'
+              secretRef: 'FreeTier__Cosmos__Enabled'
             }
             {
               name: 'FreeTier__Cosmos__SubscriptionId'
-              secretRef: 'freetier-cosmos-subscription-id'
+              secretRef: 'FreeTier__Cosmos__SubscriptionId'
             }
             {
               name: 'FreeTier__Cosmos__ResourceGroup'
-              secretRef: 'freetier-cosmos-resource-group'
+              secretRef: 'FreeTier__Cosmos__ResourceGroup'
             }
             {
               name: 'FreeTier__Cosmos__AccountName'
-              secretRef: 'freetier-cosmos-account-name'
+              secretRef: 'FreeTier__Cosmos__AccountName'
             }
             {
               name: 'FreeTier__Cosmos__DatabaseName'
-              secretRef: 'freetier-cosmos-database-name'
+              secretRef: 'FreeTier__Cosmos__DatabaseName'
             }
             {
               name: 'FreeTier__Cosmos__AccountResourceId'
-              secretRef: 'freetier-cosmos-account-resource-id'
+              secretRef: 'FreeTier__Cosmos__AccountResourceId'
             }
             {
               name: 'FreeTier__Cosmos__Provisioning'
-              secretRef: 'freetier-cosmos-provisioning'
+              secretRef: 'FreeTier__Cosmos__Provisioning'
             }
             {
               name: 'FreeTier__Cosmos__FreeTierStorageGb'
-              secretRef: 'freetier-cosmos-free-tier-storage-gb'
+              secretRef: 'FreeTier__Cosmos__FreeTierStorageGb'
             }
             {
               name: 'FreeTier__Cosmos__FreeTierVCoreStorageGb'
-              secretRef: 'freetier-cosmos-free-tier-vcore-storage-gb'
+              secretRef: 'FreeTier__Cosmos__FreeTierVCoreStorageGb'
             }
             {
               name: 'FreeTier__Cosmos__WarnRuPercent'
-              secretRef: 'freetier-cosmos-warn-ru-percent'
+              secretRef: 'FreeTier__Cosmos__WarnRuPercent'
             }
             {
               name: 'FreeTier__Cosmos__WarnStoragePercent'
-              secretRef: 'freetier-cosmos-warn-storage-percent'
+              secretRef: 'FreeTier__Cosmos__WarnStoragePercent'
             }
             {
               name: 'FreeTier__Cosmos__RefreshMinutes'
-              secretRef: 'freetier-cosmos-refresh-minutes'
-            }
-            {
-              name: 'AzureUsage__Enabled'
-              secretRef: 'azureusage-enabled'
-            }
-            {
-              name: 'AzureUsage__ContainerAppName'
-              secretRef: 'azureusage-containerapp-name'
-            }
-            {
-              name: 'AzureUsage__ResourceGroup'
-              secretRef: 'azureusage-resource-group'
-            }
-            {
-              name: 'AzureUsage__SubscriptionId'
-              secretRef: 'azureusage-subscription-id'
-            }
-            {
-              name: 'AzureUsage__MetricsRefreshMinutes'
-              secretRef: 'azureusage-metrics-refresh-minutes'
-            }
-            {
-              name: 'AzureUsage__CostRefreshMinutes'
-              secretRef: 'azureusage-cost-refresh-minutes'
+              secretRef: 'FreeTier__Cosmos__RefreshMinutes'
             }
             {
               name: 'FreeTier__Cosmos__CollectionNames__0'
-              secretRef: 'freetier-cosmos-collection-name-0'
+              secretRef: 'FreeTier__Cosmos__CollectionNames__0'
             }
             {
               name: 'FreeTier__Cosmos__CollectionNames__1'
-              secretRef: 'freetier-cosmos-collection-name-1'
+              secretRef: 'FreeTier__Cosmos__CollectionNames__1'
+            }
+            {
+              name: 'AzureUsage__Enabled'
+              secretRef: 'AzureUsage__Enabled'
+            }
+            {
+              name: 'AzureUsage__ContainerAppName'
+              secretRef: 'AzureUsage__ContainerAppName'
+            }
+            {
+              name: 'AzureUsage__ResourceGroup'
+              secretRef: 'AzureUsage__ResourceGroup'
+            }
+            {
+              name: 'AzureUsage__SubscriptionId'
+              secretRef: 'AzureUsage__SubscriptionId'
+            }
+            {
+              name: 'AzureUsage__MetricsRefreshMinutes'
+              secretRef: 'AzureUsage__MetricsRefreshMinutes'
+            }
+            {
+              name: 'AzureUsage__CostRefreshMinutes'
+              secretRef: 'AzureUsage__CostRefreshMinutes'
             }
             {
               name: 'GitSettings__RemoteName'
-              secretRef: 'gitsettings-remote-name'
+              secretRef: 'GitSettings__RemoteName'
             }
             {
               name: 'GitSettings__AuthorName'
-              secretRef: 'gitsettings-author-name'
+              secretRef: 'GitSettings__AuthorName'
             }
             {
               name: 'GitSettings__AuthorEmail'
-              secretRef: 'gitsettings-author-email'
+              secretRef: 'GitSettings__AuthorEmail'
             }
             {
               name: 'GitSettings__Token'
-              secretRef: 'git-token'
+              secretRef: 'GitSettings__Token'
             }
             {
               name: 'GitSettings__CloneUrl'
-              secretRef: 'git-clone-url'
+              secretRef: 'GitSettings__CloneUrl'
             }
           ]
         }
