@@ -550,15 +550,65 @@ jobs:
           echo "Please verify Managed Identity is enabled in Azure Portal"
         else
           echo "✅ Managed Identity Principal ID: $PRINCIPAL_ID"
-          echo ""
-          echo "📋 Post-Deployment Action Required:"
-          echo "   Manually assign the following roles in Azure Portal:"
-          echo "   1. Reader (Resource Group scope)"
-          echo "   2. Monitoring Reader (Resource Group scope)"
-          echo "   3. Cost Management Reader (Subscription scope)"
-          echo ""
-          echo "   See README.md 'Post-Deployment Setup: Role Assignments' for detailed steps."
         fi
+
+    - name: Assign Azure roles to Managed Identity
+      if: steps.deploy-application.outputs.containerAppPrincipalId != '' && steps.deploy-application.outputs.containerAppPrincipalId != 'null'
+      env:
+        PRINCIPAL_ID: ${{ steps.deploy-application.outputs.containerAppPrincipalId }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
+      run: |
+        echo "🔐 Assigning Azure roles to Managed Identity..."
+
+        # Assign Reader role to resource group
+        if az role assignment create \
+          --assignee "$PRINCIPAL_ID" \
+          --role "Reader" \
+          --resource-group "$RESOURCE_GROUP" \
+          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          echo "ℹ️  Reader role already assigned to resource group"
+        else
+          echo "✅ Assigned Reader role to resource group"
+        fi
+
+        # Assign Monitoring Reader role to resource group
+        if az role assignment create \
+          --assignee "$PRINCIPAL_ID" \
+          --role "Monitoring Reader" \
+          --resource-group "$RESOURCE_GROUP" \
+          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          echo "ℹ️  Monitoring Reader role already assigned to resource group"
+        else
+          echo "✅ Assigned Monitoring Reader role to resource group"
+        fi
+
+        # Assign Cost Management Reader role to subscription
+        if az role assignment create \
+          --assignee "$PRINCIPAL_ID" \
+          --role "Cost Management Reader" \
+          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" \
+          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          echo "ℹ️  Cost Management Reader role already assigned to subscription"
+        else
+          echo "✅ Assigned Cost Management Reader role to subscription"
+        fi
+
+        # Assign Monitoring Reader role to Cosmos DB (for vCore metrics)
+        COSMOS_SCOPE="/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME"
+        if az role assignment create \
+          --assignee "$PRINCIPAL_ID" \
+          --role "Monitoring Reader" \
+          --scope "$COSMOS_SCOPE" \
+          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          echo "ℹ️  Monitoring Reader role already assigned to Cosmos DB"
+        else
+          echo "✅ Assigned Monitoring Reader role to Cosmos DB"
+        fi
+
+        echo ""
+        echo "🎉 All required roles have been assigned successfully!"
+        echo "   The Container App can now access Azure metrics and cost data."
 
     - name: Cleanup secrets
       if: always()

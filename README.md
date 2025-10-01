@@ -62,17 +62,22 @@ The template at `infra/main.bicep` provisions:
 
 ## Post-Deployment Setup: Role Assignments
 
-After the first deployment, you must **manually assign Azure roles** to the Container App's Managed Identity to enable usage monitoring and cost tracking.
+The deployment workflow **automatically assigns** the required Azure roles to enable usage monitoring and cost tracking. No manual configuration is needed.
 
-### Required Roles
+### Automatically Assigned Roles
 
-The Container App needs the following roles to query Azure metrics and cost data:
+The workflow assigns the following roles to the Container App's Managed Identity:
 
-1. **Reader** - Access to resource metadata and Cosmos DB information
-2. **Monitoring Reader** - Access to Azure Monitor metrics (CPU, memory, requests, data transfer)
-3. **Cost Management Reader** - Access to Azure Cost Management data (vCPU-seconds, GiB-seconds)
+1. **Reader** (Resource Group scope) - Access to resource metadata and Cosmos DB information
+2. **Monitoring Reader** (Resource Group scope) - Access to Azure Monitor metrics (CPU, memory, requests, data transfer)
+3. **Cost Management Reader** (Subscription scope) - Access to Azure Cost Management data (vCPU-seconds, GiB-seconds)
+4. **Monitoring Reader** (Cosmos DB scope) - Access to Cosmos DB vCore metrics (StorageUsed, CPU, Memory)
 
-### Assignment Steps
+### Manual Assignment (If Needed)
+
+If the automatic assignment fails or you're deploying manually, you can assign roles using these methods:
+
+#### Method 1: Azure Portal (GUI)
 
 1. Open **Azure Portal** → Navigate to your **Container App** (`<namePrefix>-app`)
 2. Go to **Security** → **Identity** in the left menu
@@ -100,7 +105,43 @@ The Container App needs the following roles to query Azure metrics and cost data
    - Role: **Cost Management Reader**
    - Click **Save**
 
-> **Note**: These role assignments are **permanent** and only need to be configured once. Future deployments will not require this step.
+#### Method 2: Azure CLI
+
+```bash
+# Get the Container App's Managed Identity Principal ID
+PRINCIPAL_ID=$(az containerapp identity show \
+  --name <namePrefix>-app \
+  --resource-group rg-<namePrefix> \
+  --query principalId -o tsv)
+
+echo "Principal ID: $PRINCIPAL_ID"
+
+# Assign Reader role to the resource group
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Reader" \
+  --resource-group rg-<namePrefix>
+
+# Assign Monitoring Reader role to the resource group
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Monitoring Reader" \
+  --resource-group rg-<namePrefix>
+
+# Assign Cost Management Reader role to the subscription
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Cost Management Reader" \
+  --scope /subscriptions/<subscription-id>
+
+# Assign Monitoring Reader to Cosmos DB for vCore metrics
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Monitoring Reader" \
+  --scope /subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>/providers/Microsoft.DocumentDB/mongoClusters/<cosmos-account-name>
+```
+
+> **Note**: Role assignments are **permanent** and persist across deployments. The workflow checks for existing assignments to avoid duplicates.
 
 ### Verification
 

@@ -62,17 +62,22 @@ GitHub Actionsで**Run workflow**を使用して同じワークフローを実�
 
 ## デプロイ後のセットアップ：ロールの割り当て
 
-初回デプロイ後、使用状況監視とコスト追跡を有効にするために、Container AppのManaged Identityに**Azureロールを手動で割り当てる**必要があります。
+デプロイワークフローが**自動的に**必要なAzureロールを割り当てます。手動設定は不要です。
 
-### 必要なロール
+### 自動的に割り当てられるロール
 
-Container AppがAzureメトリクスとコストデータをクエリするには、以下のロールが必要です：
+ワークフローは以下のロールをContainer AppのManaged Identityに割り当てます：
 
-1. **閲覧者（Reader）** - リソースメタデータとCosmos DB情報へのアクセス
-2. **監視閲覧者（Monitoring Reader）** - Azure Monitorメトリクス（CPU、メモリ、リクエスト、データ転送）へのアクセス
-3. **Cost Management 閲覧者（Cost Management Reader）** - Azure Cost Managementデータ（vCPU秒、GiB秒）へのアクセス
+1. **閲覧者（Reader）**（リソースグループスコープ） - リソースメタデータとCosmos DB情報へのアクセス
+2. **監視閲覧者（Monitoring Reader）**（リソースグループスコープ） - Azure Monitorメトリクス（CPU、メモリ、リクエスト、データ転送）へのアクセス
+3. **Cost Management 閲覧者（Cost Management Reader）**（サブスクリプションスコープ） - Azure Cost Managementデータ（vCPU秒、GiB秒）へのアクセス
+4. **監視閲覧者（Monitoring Reader）**（Cosmos DBスコープ） - Cosmos DB vCoreメトリクス（StorageUsed、CPU、Memory）へのアクセス
 
-### 割り当て手順
+### 手動での割り当て（必要な場合）
+
+自動割り当てが失敗した場合や手動でデプロイする場合は、以下の方法でロールを割り当てられます：
+
+#### 方法1: Azure Portal（GUI）
 
 1. **Azure Portal**を開く → **Container App**（`<namePrefix>-app`）に移動
 2. 左メニューの**セキュリティ** → **ID**に移動
@@ -100,7 +105,43 @@ Container AppがAzureメトリクスとコストデータをクエリするに�
    - ロール：**Cost Management 閲覧者**
    - **保存**をクリック
 
-> **注意**: これらのロールの割り当ては**永続的**で、一度だけ設定すれば済みます。今後のデプロイメントではこのステップは不要です。
+#### 方法2: Azure CLI
+
+```bash
+# Container AppのManaged IdentityのPrincipal IDを取得
+PRINCIPAL_ID=$(az containerapp identity show \
+  --name <namePrefix>-app \
+  --resource-group rg-<namePrefix> \
+  --query principalId -o tsv)
+
+echo "Principal ID: $PRINCIPAL_ID"
+
+# リソースグループに閲覧者ロールを割り当て
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Reader" \
+  --resource-group rg-<namePrefix>
+
+# リソースグループに監視閲覧者ロールを割り当て
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Monitoring Reader" \
+  --resource-group rg-<namePrefix>
+
+# サブスクリプションにCost Management 閲覧者ロールを割り当て
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Cost Management Reader" \
+  --scope /subscriptions/<subscription-id>
+
+# Cosmos DB vCoreメトリクス用に監視閲覧者を割り当て
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Monitoring Reader" \
+  --scope /subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>/providers/Microsoft.DocumentDB/mongoClusters/<cosmos-account-name>
+```
+
+> **注意**: ロールの割り当ては**永続的**で、デプロイをまたいで保持されます。ワークフローは既存の割り当てを確認し、重複を回避します。
 
 ### 検証
 
