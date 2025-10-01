@@ -270,6 +270,50 @@ jobs:
         echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
         echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
 
+    - name: Validate Container App template
+      env:
+        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+        LOCATION: ${{ steps.extract-params.outputs.location }}
+        CONTAINER_REGISTRY_SERVER: ${{ steps.extract-params.outputs.container-registry-server }}
+        CONTAINER_REGISTRY_REPOSITORY: ${{ steps.extract-params.outputs.container-registry-repository }}
+        ENVIRONMENT_ID: ${{ steps.deploy-infrastructure.outputs.environmentId }}
+        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
+        GOOGLE_CLIENT_ID: ${{ steps.extract-secrets.outputs.google-client-id }}
+        GOOGLE_CLIENT_SECRET: ${{ steps.extract-secrets.outputs.google-client-secret }}
+        INITIAL_USER_EMAIL: ${{ steps.extract-secrets.outputs.initial-user-email }}
+        GIT_AUTHOR_NAME: ${{ steps.extract-secrets.outputs.git-author-name }}
+        GIT_AUTHOR_EMAIL: ${{ steps.extract-secrets.outputs.git-author-email }}
+        GIT_TOKEN: ${{ steps.extract-secrets.outputs.git-token }}
+        GIT_CLONE_URL: ${{ steps.extract-secrets.outputs.git-clone-url }}
+        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
+      run: |
+        set -eo pipefail
+
+        DEPLOYMENT_NAME="app-${{ github.run_number }}-${{ github.run_attempt }}"
+        MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+
+        az deployment group validate \
+          --name "$DEPLOYMENT_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --template-file infra/application.bicep \
+          --parameters \
+            containerAppName="$APP_NAME" \
+            location="$LOCATION" \
+            environmentId="$ENVIRONMENT_ID" \
+            cosmosDbAccountName="$COSMOS_NAME" \
+            imageTag="latest" \
+            containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
+            containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
+            mongoConnectionString="$MONGO_CONN" \
+            googleClientId="$GOOGLE_CLIENT_ID" \
+            googleClientSecret="$GOOGLE_CLIENT_SECRET" \
+            initialUserEmail="$INITIAL_USER_EMAIL" \
+            gitAuthorName="$GIT_AUTHOR_NAME" \
+            gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
+            gitToken="$GIT_TOKEN" \
+            gitCloneUrl="$GIT_CLONE_URL"
+
     - name: Deploy Container App configuration
       id: deploy-application
       env:
@@ -291,11 +335,12 @@ jobs:
       run: |
         set -eo pipefail
 
+        DEPLOYMENT_NAME="app-${{ github.run_number }}-${{ github.run_attempt }}"
         IMAGE_TAG="latest"
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
-        az deployment group create \
-          --name "app-${{ github.run_number }}-${{ github.run_attempt }}" \
+        if ! az deployment group create \
+          --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/application.bicep \
           --parameters \
@@ -313,7 +358,16 @@ jobs:
             gitAuthorName="$GIT_AUTHOR_NAME" \
             gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
             gitToken="$GIT_TOKEN" \
-            gitCloneUrl="$GIT_CLONE_URL"
+            gitCloneUrl="$GIT_CLONE_URL" \
+          --verbose; then
+          echo "Deployment failed, retrieving operation diagnostics..."
+          az deployment operation group list \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$DEPLOYMENT_NAME" \
+            --query '[].{state:properties.provisioningState, message:properties.statusMessage}' \
+            -o jsonc || true
+          exit 1
+        fi
 
         APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
         PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
