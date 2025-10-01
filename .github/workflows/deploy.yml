@@ -402,7 +402,6 @@ jobs:
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --image "$IMAGE_REF" \
-            --assign-identity [system] \
             > "$UPDATE_LOG" 2>&1; then
             echo "::group::Container App image update failure"
             cat "$UPDATE_LOG"
@@ -411,6 +410,13 @@ jobs:
             exit 1
           fi
           rm -f "$UPDATE_LOG"
+
+          echo "Ensuring system-assigned identity is enabled..."
+          az containerapp identity assign \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --system-assigned \
+            || echo "Identity may already be assigned or command failed"
         fi
 
         SECRET_LOG=$(mktemp)
