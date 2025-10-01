@@ -10,12 +10,23 @@ FestivalManagementWeb is an ASP.NET Core 8.0 application for managing festival c
 - Git integration hooks for mirroring deployment metadata
 
 ## Tech Stack
-- **Backend:** ASP.NET Core 8.0 MVC
-- **Database:** Azure Cosmos DB (MongoDB API)
-- **Authentication:** ASP.NET Identity + Google OAuth 2.0
-- **Infrastructure:** Azure Container Apps, GitHub Container Registry (GHCR)
-- **Monitoring:** Application Insights, Azure Log Analytics
-- **IaC & CI/CD:** Bicep templates + GitHub Actions
+
+| Layer | Primary Technologies |
+| --- | --- |
+| Backend | ASP.NET Core 8.0 MVC (C# 12) |
+| Data | Azure Cosmos DB (MongoDB API) via MongoDB.Driver & GridFS |
+| Identity | ASP.NET Identity with Google OAuth 2.0 sign-in |
+| Frontend | Razor Views + Bootstrap 5 assets in `wwwroot` |
+| Infrastructure | Azure Container Apps, GitHub Container Registry (GHCR) |
+| Observability | Azure Monitor metrics, cost management APIs, Application Insights (optional) |
+| Automation | Bicep templates, GitHub Actions CI/CD, usage guard scripts |
+
+### Development Stack
+- .NET 8 SDK and tooling (Visual Studio 2022 17.10+ or VS Code + C# Dev Kit)
+- Azure CLI 2.64+ for resource provisioning/testing of usage collectors
+- Docker Desktop (local container builds aligned with CI images)
+- MongoDB Shell tools for inspecting Cosmos DB (Mongo API) collections
+- Optional: Node.js 20+ if you customize static assets under `wwwroot`
 
 ## Deployment Essentials
 

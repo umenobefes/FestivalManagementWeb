@@ -22,7 +22,36 @@ param containerRegistryRepository string
 @description('Scale down to zero cooldown in seconds (default: 300 = 5 minutes)')
 param scaleDownToZeroCooldownInSeconds int = 300
 
-// Container App - Minimal version (secrets and env vars configured post-deployment)
+@description('MongoDB connection string for the application')
+@secure()
+param mongoConnectionString string
+
+@description('Google OAuth client ID')
+@secure()
+param googleClientId string
+
+@description('Google OAuth client secret')
+@secure()
+param googleClientSecret string
+
+@description('Initial administrator email address')
+param initialUserEmail string
+
+@description('Git author name used by the app')
+param gitAuthorName string
+
+@description('Git author email used by the app')
+param gitAuthorEmail string
+
+@description('Git access token for deployment metadata sync')
+@secure()
+param gitToken string
+
+@description('Git clone URL for deployment metadata sync')
+@secure()
+param gitCloneUrl string
+
+// Container App - configured with secrets and usage monitoring environment variables
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
@@ -32,6 +61,29 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: environmentId
     configuration: {
+      secrets: [
+        {
+          name: 'mongo-connection-string'
+          value: mongoConnectionString
+        }
+        {
+          name: 'google-client-id'
+          value: googleClientId
+        }
+        {
+          name: 'google-client-secret'
+          value: googleClientSecret
+        }
+        {
+          name: 'git-token'
+          value: gitToken
+        }
+        {
+          name: 'git-clone-url'
+          #disable-next-line use-secure-value-for-secure-inputs
+          value: gitCloneUrl
+        }
+      ]
       ingress: {
         external: true
         targetPort: 8080
@@ -53,6 +105,26 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'ASPNETCORE_ENVIRONMENT'
               value: 'Production'
+            }
+            {
+              name: 'MongoDbSettings__ConnectionString'
+              secretRef: 'mongo-connection-string'
+            }
+            {
+              name: 'MongoDbSettings__DatabaseName'
+              value: 'FestivalManagement'
+            }
+            {
+              name: 'Authentication__Google__ClientId'
+              secretRef: 'google-client-id'
+            }
+            {
+              name: 'Authentication__Google__ClientSecret'
+              secretRef: 'google-client-secret'
+            }
+            {
+              name: 'InitialUser__Email'
+              value: initialUserEmail
             }
             {
               name: 'FreeTier__EnableBanner'
@@ -145,6 +217,26 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'FreeTier__Cosmos__CollectionNames__1'
               value: 'ImageKeyValues'
+            }
+            {
+              name: 'GitSettings__RemoteName'
+              value: 'origin'
+            }
+            {
+              name: 'GitSettings__AuthorName'
+              value: gitAuthorName
+            }
+            {
+              name: 'GitSettings__AuthorEmail'
+              value: gitAuthorEmail
+            }
+            {
+              name: 'GitSettings__Token'
+              secretRef: 'git-token'
+            }
+            {
+              name: 'GitSettings__CloneUrl'
+              secretRef: 'git-clone-url'
             }
             {
               name: 'AzureUsage__Enabled'
