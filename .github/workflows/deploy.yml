@@ -172,7 +172,7 @@ jobs:
 
     - name: Build Docker image
       run: |
-        docker build -f FestivalManagementWeb/Dockerfile -t ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} .
+        docker build --no-cache -f FestivalManagementWeb/Dockerfile -t ${{ steps.extract-params.outputs.image-name }}:${{ github.sha }} .
 
     - name: Login to container registry
       run: |
