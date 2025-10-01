@@ -293,7 +293,9 @@ jobs:
         DEPLOYMENT_NAME="app-${{ github.run_number }}-${{ github.run_attempt }}"
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
-        az deployment group validate \
+        VALIDATE_LOG=$(mktemp)
+
+        if ! az deployment group validate \
           --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/application.bicep \
@@ -312,7 +314,16 @@ jobs:
             gitAuthorName="$GIT_AUTHOR_NAME" \
             gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
             gitToken="$GIT_TOKEN" \
-            gitCloneUrl="$GIT_CLONE_URL"
+            gitCloneUrl="$GIT_CLONE_URL" \
+          > "$VALIDATE_LOG" 2>&1; then
+          echo "::group::Container App validation failure"
+          cat "$VALIDATE_LOG"
+          echo "::endgroup::"
+          rm -f "$VALIDATE_LOG"
+          exit 1
+        fi
+
+        rm -f "$VALIDATE_LOG"
 
     - name: Deploy Container App configuration
       id: deploy-application
@@ -371,8 +382,7 @@ jobs:
           az deployment operation group list \
             --resource-group "$RESOURCE_GROUP" \
             --name "$DEPLOYMENT_NAME" \
-            --query '[].{state:properties.provisioningState, message:properties.statusMessage}' \
-            -o jsonc || true
+            -o json || true
           exit 1
         fi
 
