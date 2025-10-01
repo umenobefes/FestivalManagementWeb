@@ -48,6 +48,11 @@ param gitToken string
 @secure()
 param gitCloneUrl string
 
+// Reference to existing Cosmos DB cluster
+resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' existing = {
+  name: cosmosDbAccountName
+}
+
 // Container App - configured with secrets and usage monitoring environment variables
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
@@ -60,8 +65,16 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       secrets: [
         {
+          name: 'aspnetcore-environment'
+          value: 'Production'
+        }
+        {
           name: 'mongo-connection-string'
           value: mongoConnectionString
+        }
+        {
+          name: 'mongo-database-name'
+          value: 'FestivalManagement'
         }
         {
           name: 'google-client-id'
@@ -70,6 +83,138 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'google-client-secret'
           value: googleClientSecret
+        }
+        {
+          name: 'initial-user-email'
+          value: initialUserEmail
+        }
+        {
+          name: 'freetier-enable-banner'
+          value: 'true'
+        }
+        {
+          name: 'freetier-budget-vcpu-seconds'
+          value: '180000'
+        }
+        {
+          name: 'freetier-budget-gib-seconds'
+          value: '360000'
+        }
+        {
+          name: 'freetier-resource-vcpu-per-replica'
+          value: '0.25'
+        }
+        {
+          name: 'freetier-resource-memory-gib-per-replica'
+          value: '0.5'
+        }
+        {
+          name: 'freetier-resource-replica-factor'
+          value: '1'
+        }
+        {
+          name: 'freetier-enforce-request-daily-cap'
+          value: 'false'
+        }
+        {
+          name: 'freetier-data-budget-gb'
+          value: '100'
+        }
+        {
+          name: 'freetier-requests-budget'
+          value: '2000000'
+        }
+        {
+          name: 'freetier-cosmos-enabled'
+          value: 'true'
+        }
+        {
+          name: 'freetier-cosmos-subscription-id'
+          value: subscription().subscriptionId
+        }
+        {
+          name: 'freetier-cosmos-resource-group'
+          value: resourceGroup().name
+        }
+        {
+          name: 'freetier-cosmos-account-name'
+          value: cosmosDbAccountName
+        }
+        {
+          name: 'freetier-cosmos-database-name'
+          value: 'FestivalManagement'
+        }
+        {
+          name: 'freetier-cosmos-account-resource-id'
+          value: cosmosMongoCluster.id
+        }
+        {
+          name: 'freetier-cosmos-provisioning'
+          value: 'vCore'
+        }
+        {
+          name: 'freetier-cosmos-free-tier-storage-gb'
+          value: '32'
+        }
+        {
+          name: 'freetier-cosmos-free-tier-vcore-storage-gb'
+          value: '32'
+        }
+        {
+          name: 'freetier-cosmos-warn-ru-percent'
+          value: '90'
+        }
+        {
+          name: 'freetier-cosmos-warn-storage-percent'
+          value: '90'
+        }
+        {
+          name: 'freetier-cosmos-refresh-minutes'
+          value: '60'
+        }
+        {
+          name: 'azureusage-enabled'
+          value: 'true'
+        }
+        {
+          name: 'azureusage-containerapp-name'
+          value: containerAppName
+        }
+        {
+          name: 'azureusage-resource-group'
+          value: resourceGroup().name
+        }
+        {
+          name: 'azureusage-subscription-id'
+          value: subscription().subscriptionId
+        }
+        {
+          name: 'azureusage-metrics-refresh-minutes'
+          value: '10'
+        }
+        {
+          name: 'azureusage-cost-refresh-minutes'
+          value: '360'
+        }
+        {
+          name: 'gitsettings-remote-name'
+          value: 'origin'
+        }
+        {
+          name: 'freetier-cosmos-collection-name-0'
+          value: 'TextKeyValues'
+        }
+        {
+          name: 'freetier-cosmos-collection-name-1'
+          value: 'ImageKeyValues'
+        }
+        {
+          name: 'gitsettings-author-name'
+          value: gitAuthorName
+        }
+        {
+          name: 'gitsettings-author-email'
+          value: gitAuthorEmail
         }
         {
           name: 'git-token'
@@ -101,7 +246,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             {
               name: 'ASPNETCORE_ENVIRONMENT'
-              value: 'Production'
+              secretRef: 'aspnetcore-environment'
             }
             {
               name: 'MongoDbSettings__ConnectionString'
@@ -109,7 +254,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'MongoDbSettings__DatabaseName'
-              value: 'FestivalManagement'
+              secretRef: 'mongo-database-name'
             }
             {
               name: 'Authentication__Google__ClientId'
@@ -121,111 +266,135 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'InitialUser__Email'
-              value: initialUserEmail
+              secretRef: 'initial-user-email'
             }
             {
               name: 'FreeTier__EnableBanner'
-              value: 'true'
+              secretRef: 'freetier-enable-banner'
             }
             {
               name: 'FreeTier__BudgetVcpuSeconds'
-              value: '180000'
+              secretRef: 'freetier-budget-vcpu-seconds'
             }
             {
               name: 'FreeTier__BudgetGiBSeconds'
-              value: '360000'
+              secretRef: 'freetier-budget-gib-seconds'
             }
             {
               name: 'FreeTier__Resource__VcpuPerReplica'
-              value: '0.25'
+              secretRef: 'freetier-resource-vcpu-per-replica'
             }
             {
               name: 'FreeTier__Resource__MemoryGiBPerReplica'
-              value: '0.5'
+              secretRef: 'freetier-resource-memory-gib-per-replica'
             }
             {
               name: 'FreeTier__Resource__ReplicaFactor'
-              value: '1'
+              secretRef: 'freetier-resource-replica-factor'
             }
             {
               name: 'FreeTier__EnforceRequestDailyCap'
-              value: 'false'
+              secretRef: 'freetier-enforce-request-daily-cap'
             }
             {
               name: 'FreeTier__Data__BudgetGb'
-              value: '100'
+              secretRef: 'freetier-data-budget-gb'
             }
             {
               name: 'FreeTier__Requests__Budget'
-              value: '2000000'
+              secretRef: 'freetier-requests-budget'
             }
             {
               name: 'FreeTier__Cosmos__Enabled'
-              value: 'true'
+              secretRef: 'freetier-cosmos-enabled'
             }
             {
               name: 'FreeTier__Cosmos__SubscriptionId'
-              value: subscription().subscriptionId
+              secretRef: 'freetier-cosmos-subscription-id'
             }
             {
               name: 'FreeTier__Cosmos__ResourceGroup'
-              value: resourceGroup().name
+              secretRef: 'freetier-cosmos-resource-group'
             }
             {
               name: 'FreeTier__Cosmos__AccountName'
-              value: cosmosDbAccountName
+              secretRef: 'freetier-cosmos-account-name'
             }
             {
               name: 'FreeTier__Cosmos__DatabaseName'
-              value: 'FestivalManagement'
+              secretRef: 'freetier-cosmos-database-name'
             }
             {
               name: 'FreeTier__Cosmos__AccountResourceId'
-              value: format('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.DocumentDB/mongoClusters/{2}', subscription().subscriptionId, resourceGroup().name, cosmosDbAccountName)
+              secretRef: 'freetier-cosmos-account-resource-id'
             }
             {
               name: 'FreeTier__Cosmos__Provisioning'
-              value: 'vCore'
+              secretRef: 'freetier-cosmos-provisioning'
             }
             {
               name: 'FreeTier__Cosmos__FreeTierStorageGb'
-              value: '32'
+              secretRef: 'freetier-cosmos-free-tier-storage-gb'
             }
             {
               name: 'FreeTier__Cosmos__FreeTierVCoreStorageGb'
-              value: '32'
+              secretRef: 'freetier-cosmos-free-tier-vcore-storage-gb'
             }
             {
               name: 'FreeTier__Cosmos__WarnRuPercent'
-              value: '90'
+              secretRef: 'freetier-cosmos-warn-ru-percent'
             }
             {
               name: 'FreeTier__Cosmos__WarnStoragePercent'
-              value: '90'
+              secretRef: 'freetier-cosmos-warn-storage-percent'
             }
             {
               name: 'FreeTier__Cosmos__RefreshMinutes'
-              value: '60'
+              secretRef: 'freetier-cosmos-refresh-minutes'
+            }
+            {
+              name: 'AzureUsage__Enabled'
+              secretRef: 'azureusage-enabled'
+            }
+            {
+              name: 'AzureUsage__ContainerAppName'
+              secretRef: 'azureusage-containerapp-name'
+            }
+            {
+              name: 'AzureUsage__ResourceGroup'
+              secretRef: 'azureusage-resource-group'
+            }
+            {
+              name: 'AzureUsage__SubscriptionId'
+              secretRef: 'azureusage-subscription-id'
+            }
+            {
+              name: 'AzureUsage__MetricsRefreshMinutes'
+              secretRef: 'azureusage-metrics-refresh-minutes'
+            }
+            {
+              name: 'AzureUsage__CostRefreshMinutes'
+              secretRef: 'azureusage-cost-refresh-minutes'
             }
             {
               name: 'FreeTier__Cosmos__CollectionNames__0'
-              value: 'TextKeyValues'
+              secretRef: 'freetier-cosmos-collection-name-0'
             }
             {
               name: 'FreeTier__Cosmos__CollectionNames__1'
-              value: 'ImageKeyValues'
+              secretRef: 'freetier-cosmos-collection-name-1'
             }
             {
               name: 'GitSettings__RemoteName'
-              value: 'origin'
+              secretRef: 'gitsettings-remote-name'
             }
             {
               name: 'GitSettings__AuthorName'
-              value: gitAuthorName
+              secretRef: 'gitsettings-author-name'
             }
             {
               name: 'GitSettings__AuthorEmail'
-              value: gitAuthorEmail
+              secretRef: 'gitsettings-author-email'
             }
             {
               name: 'GitSettings__Token'
@@ -235,35 +404,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'GitSettings__CloneUrl'
               secretRef: 'git-clone-url'
             }
-            {
-              name: 'AzureUsage__Enabled'
-              value: 'true'
-            }
-            {
-              name: 'AzureUsage__ContainerAppName'
-              value: containerAppName
-            }
-            {
-              name: 'AzureUsage__ResourceGroup'
-              value: resourceGroup().name
-            }
-            {
-              name: 'AzureUsage__SubscriptionId'
-              value: subscription().subscriptionId
-            }
-            {
-              name: 'AzureUsage__MetricsRefreshMinutes'
-              value: '10'
-            }
-            {
-              name: 'AzureUsage__CostRefreshMinutes'
-              value: '360'
-            }
           ]
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
         }
       ]
       scale: {
