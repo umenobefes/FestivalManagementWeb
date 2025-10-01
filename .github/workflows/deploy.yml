@@ -294,8 +294,7 @@ jobs:
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
         VALIDATE_LOG=$(mktemp)
-        set +e
-        az deployment group validate \
+        if ! az deployment group validate \
           --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/application.bicep \
@@ -315,15 +314,16 @@ jobs:
             gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
             gitToken="$GIT_TOKEN" \
             gitCloneUrl="$GIT_CLONE_URL" \
-          2>&1 | tee "$VALIDATE_LOG"
-        VALIDATE_EXIT=${PIPESTATUS[0]}
-        set -e
-        if [ "$VALIDATE_EXIT" -ne 0 ]; then
-          echo "::group::Container App validation failure"
-          cat "$VALIDATE_LOG"
-          echo "::endgroup::"
-          rm -f "$VALIDATE_LOG"
-          exit $VALIDATE_EXIT
+          > "$VALIDATE_LOG" 2>&1; then
+          if grep -qi "The content for this response was already consumed" "$VALIDATE_LOG"; then
+            echo "::warning::Azure CLI validation returned a known bug (response already consumed). Proceeding to deployment; see deployment step for concrete errors."
+          else
+            echo "::group::Container App validation failure"
+            cat "$VALIDATE_LOG"
+            echo "::endgroup::"
+            rm -f "$VALIDATE_LOG"
+            exit 1
+          fi
         fi
         rm -f "$VALIDATE_LOG"
 
@@ -353,8 +353,7 @@ jobs:
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
         DEPLOY_LOG=$(mktemp)
-        set +e
-        az deployment group create \
+        if ! az deployment group create \
           --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/application.bicep \
@@ -374,10 +373,7 @@ jobs:
             gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
             gitToken="$GIT_TOKEN" \
             gitCloneUrl="$GIT_CLONE_URL" \
-          2>&1 | tee "$DEPLOY_LOG"
-        DEPLOY_EXIT=${PIPESTATUS[0]}
-        set -e
-        if [ "$DEPLOY_EXIT" -ne 0 ]; then
+          > "$DEPLOY_LOG" 2>&1; then
           echo "::group::Container App deployment failure"
           cat "$DEPLOY_LOG"
           echo "::endgroup::"
@@ -388,7 +384,7 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --name "$DEPLOYMENT_NAME" \
             -o json || true
-          exit $DEPLOY_EXIT
+          exit 1
         fi
 
         rm -f "$DEPLOY_LOG"
