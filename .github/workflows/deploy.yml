@@ -294,8 +294,8 @@ jobs:
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
         VALIDATE_LOG=$(mktemp)
-
-        if ! az deployment group validate \
+        set +e
+        az deployment group validate \
           --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/application.bicep \
@@ -315,14 +315,16 @@ jobs:
             gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
             gitToken="$GIT_TOKEN" \
             gitCloneUrl="$GIT_CLONE_URL" \
-          > "$VALIDATE_LOG" 2>&1; then
+          2>&1 | tee "$VALIDATE_LOG"
+        VALIDATE_EXIT=${PIPESTATUS[0]}
+        set -e
+        if [ "$VALIDATE_EXIT" -ne 0 ]; then
           echo "::group::Container App validation failure"
           cat "$VALIDATE_LOG"
           echo "::endgroup::"
           rm -f "$VALIDATE_LOG"
-          exit 1
+          exit $VALIDATE_EXIT
         fi
-
         rm -f "$VALIDATE_LOG"
 
     - name: Deploy Container App configuration
@@ -351,8 +353,8 @@ jobs:
         MONGO_CONN="mongodb+srv://mongoAdmin:${MONGO_ADMIN_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
         DEPLOY_LOG=$(mktemp)
-
-        if ! az deployment group create \
+        set +e
+        az deployment group create \
           --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/application.bicep \
@@ -372,7 +374,10 @@ jobs:
             gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
             gitToken="$GIT_TOKEN" \
             gitCloneUrl="$GIT_CLONE_URL" \
-          > "$DEPLOY_LOG" 2>&1; then
+          2>&1 | tee "$DEPLOY_LOG"
+        DEPLOY_EXIT=${PIPESTATUS[0]}
+        set -e
+        if [ "$DEPLOY_EXIT" -ne 0 ]; then
           echo "::group::Container App deployment failure"
           cat "$DEPLOY_LOG"
           echo "::endgroup::"
@@ -383,7 +388,7 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --name "$DEPLOYMENT_NAME" \
             -o json || true
-          exit 1
+          exit $DEPLOY_EXIT
         fi
 
         rm -f "$DEPLOY_LOG"
