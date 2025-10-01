@@ -54,6 +54,122 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'ASPNETCORE_ENVIRONMENT'
               value: 'Production'
             }
+            {
+              name: 'FreeTier__EnableBanner'
+              value: 'true'
+            }
+            {
+              name: 'FreeTier__BudgetVcpuSeconds'
+              value: '180000'
+            }
+            {
+              name: 'FreeTier__BudgetGiBSeconds'
+              value: '360000'
+            }
+            {
+              name: 'FreeTier__Resource__VcpuPerReplica'
+              value: '0.25'
+            }
+            {
+              name: 'FreeTier__Resource__MemoryGiBPerReplica'
+              value: '0.5'
+            }
+            {
+              name: 'FreeTier__Resource__ReplicaFactor'
+              value: '1'
+            }
+            {
+              name: 'FreeTier__EnforceRequestDailyCap'
+              value: 'false'
+            }
+            {
+              name: 'FreeTier__Data__BudgetGb'
+              value: '100'
+            }
+            {
+              name: 'FreeTier__Requests__Budget'
+              value: '2000000'
+            }
+            {
+              name: 'FreeTier__Cosmos__Enabled'
+              value: 'true'
+            }
+            {
+              name: 'FreeTier__Cosmos__SubscriptionId'
+              value: subscription().subscriptionId
+            }
+            {
+              name: 'FreeTier__Cosmos__ResourceGroup'
+              value: resourceGroup().name
+            }
+            {
+              name: 'FreeTier__Cosmos__AccountName'
+              value: cosmosDbAccountName
+            }
+            {
+              name: 'FreeTier__Cosmos__DatabaseName'
+              value: 'FestivalManagement'
+            }
+            {
+              name: 'FreeTier__Cosmos__AccountResourceId'
+              value: format('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.DocumentDB/mongoClusters/{2}', subscription().subscriptionId, resourceGroup().name, cosmosDbAccountName)
+            }
+            {
+              name: 'FreeTier__Cosmos__Provisioning'
+              value: 'vCore'
+            }
+            {
+              name: 'FreeTier__Cosmos__FreeTierStorageGb'
+              value: '32'
+            }
+            {
+              name: 'FreeTier__Cosmos__FreeTierVCoreStorageGb'
+              value: '32'
+            }
+            {
+              name: 'FreeTier__Cosmos__WarnRuPercent'
+              value: '90'
+            }
+            {
+              name: 'FreeTier__Cosmos__WarnStoragePercent'
+              value: '90'
+            }
+            {
+              name: 'FreeTier__Cosmos__RefreshMinutes'
+              value: '60'
+            }
+            {
+              name: 'FreeTier__Cosmos__CollectionNames__0'
+              value: 'TextKeyValues'
+            }
+            {
+              name: 'FreeTier__Cosmos__CollectionNames__1'
+              value: 'ImageKeyValues'
+            }
+            {
+              name: 'AzureUsage__Enabled'
+              value: 'true'
+            }
+            {
+              name: 'AzureUsage__ContainerAppName'
+              value: containerAppName
+            }
+            {
+              name: 'AzureUsage__ResourceGroup'
+              value: resourceGroup().name
+            }
+            {
+              name: 'AzureUsage__SubscriptionId'
+              value: subscription().subscriptionId
+            }
+            {
+              name: 'AzureUsage__MetricsRefreshMinutes'
+              value: '10'
+            }
+            {
+              name: 'AzureUsage__CostRefreshMinutes'
+              value: '360'
+            }
           ]
           resources: {
             cpu: json('0.25')
