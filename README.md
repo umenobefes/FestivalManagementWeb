@@ -42,6 +42,38 @@ Register the following secrets in the repository that runs the workflow:
 
 > If you keep GHCR credentials in another repository, generate a PAT there and paste the value into `GHCR_TOKEN` here. The workflow only reads these secrets at runtime; no additional wiring is required.
 
+### Generating `AZURE_CREDENTIALS` with Role Assignment Permissions
+
+The deploy workflow relies on the `AZURE_CREDENTIALS` secret to both provision resources and attach Azure Monitor / Cost Management / Cosmos DB roles to the Container App identity. The service principal stored in this secret must be allowed to create role assignments at the subscription scope; otherwise the automatic role configuration in `deploy.yml` and `usage-guardian.csx` will fail.
+
+We recommend granting the principal `Contributor` **and** `User Access Administrator` on the subscription (or a single `Owner` assignment if that fits your policies). The combination keeps resource changes limited to deployment tasks while permitting the GitHub Action to grant the managed identity the monitoring roles it needs.
+
+1. Sign in to Azure and locate the subscription you plan to use:
+   ```bash
+   az login
+   az account list --output table
+   ```
+   Copy the **Subscription ID** you want from the table output. You will paste it into the following commands in place of `<subscription-id>`.
+
+2. Set the CLI context to that subscription and create a GitHub Actions service principal with `Contributor` rights. Pick any globally unique service principal name (for example, `https://gha-festival-web`) and replace `<service-principal-name>` with it:
+   ```bash
+   az account set --subscription <subscription-id>
+   az ad sp create-for-rbac      --name <service-principal-name>      --role Contributor      --scopes /subscriptions/<subscription-id>      --sdk-auth > azure-credentials.json
+   ```
+   The command writes `azure-credentials.json`. Upload this file verbatim to the `AZURE_CREDENTIALS` secret later. Copy the `appId` value printed in the JSON so you can use it in the next step.
+
+3. Grant the same service principal `User Access Administrator` so the workflow can attach monitoring roles at deploy time. If you did not record the `appId`, run the first command to fetch it and **copy the value it prints**:
+   ```bash
+   az ad sp show --id <service-principal-name> --query appId -o tsv
+   az role assignment create      --assignee <app-id>      --role "User Access Administrator"      --scope /subscriptions/<subscription-id>
+   ```
+   Paste that value in place of `<app-id>` when you run the second command.
+
+4. (Optional) After the initial deployment creates `rg-<namePrefix>`, you can scope the `Contributor` role down to `/subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>` while keeping `User Access Administrator` at the subscription level for ongoing role assignments.
+5. Upload `azure-credentials.json` to the repository's `AZURE_CREDENTIALS` secret (for example, `gh secret set AZURE_CREDENTIALS < azure-credentials.json`) and delete the local file once the secret is saved.
+
+After these steps the workflow can deploy Bicep templates, create the resource group, and automatically assign the Reader / Monitoring Reader / Cost Management Reader roles that power the usage banner and `usage-guardian.csx` guardrails.
+
 ### Default Workflow Behaviour
 - `main` branch pushes trigger `.github/workflows/deploy.yml`.
 - The workflow builds the Docker image, pushes it to `ghcr.io/<owner>/<repo>`, and then redeploys Azure Container Apps with the new tag.

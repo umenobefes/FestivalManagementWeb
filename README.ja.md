@@ -42,6 +42,38 @@ FestivalManagementWebは、フェスティバルコンテンツを管理する�
 
 > 別のリポジトリにGHCR認証情報がある場合は、そこでPATを生成し、値をここの`GHCR_TOKEN`に貼り付けてください。ワークフローは実行時にこれらのシークレットを読み取るだけで、追加の配線は不要です。
 
+### `AZURE_CREDENTIALS` のロール割り当て権限を付与する手順
+
+GitHub Actions のデプロイワークフローは、`AZURE_CREDENTIALS` に保存したサービス プリンシパルを使って Azure リソースを作成し、Azure Monitor / Cost Management / Cosmos DB (MongoDB API) のロールをコンテナー アプリのマネージド ID に自動で付与します。そのため、このサービス プリンシパルにはサブスクリプション レベルでロール割り当てを作成できる権限が必要です。
+
+推奨構成はサブスクリプションに対して `Contributor` と `User Access Administrator` を両方付与することです (ポリシーが許せば `Owner` 1 つでも可)。`Contributor` でデプロイ作業を制限しつつ、`User Access Administrator` でロール割り当てが行えます。
+
+1. Azure にサインインし、対象サブスクリプションを確認します。
+   ```bash
+   az login
+   az account list --output table
+   ```
+   表に表示された **Subscription ID** を控え、今後の手順で `<subscription-id>` の代わりに貼り付けてください。
+
+2. CLI のコンテキストをそのサブスクリプションに切り替え、GitHub Actions 用サービス プリンシパルを `Contributor` 権限付きで作成します。グローバルに一意なサービス プリンシパル名 (例: `https://gha-festival-web`) を決め、`<service-principal-name>` を置き換えてください。
+   ```bash
+   az account set --subscription <subscription-id>
+   az ad sp create-for-rbac      --name <service-principal-name>      --role Contributor      --scopes /subscriptions/<subscription-id>      --sdk-auth > azure-credentials.json
+   ```
+   生成された `azure-credentials.json` はそのまま `AZURE_CREDENTIALS` シークレットの値になります。ファイルに表示される `appId` の値をコピーして、次の手順で使えるようにしておきます。
+
+3. 同じサービス プリンシパルに `User Access Administrator` を付与し、デプロイ時にロール割り当てが行えるようにします。`appId` を控えていない場合は最初のコマンドで取得し、その出力値をコピーしてください。
+   ```bash
+   az ad sp show --id <service-principal-name> --query appId -o tsv
+   az role assignment create      --assignee <app-id>      --role "User Access Administrator"      --scope /subscriptions/<subscription-id>
+   ```
+   コピーした値を `<app-id>` の代わりに貼り付けて実行します。
+
+4. (任意) 初回デプロイで `rg-<namePrefix>` が作成された後は、`Contributor` のスコープを `/subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>` に絞り、`User Access Administrator` はサブスクリプションに残すと継続的にロール付与が可能です。
+5. `azure-credentials.json` の内容をリポジトリの `AZURE_CREDENTIALS` シークレットへ登録し、登録後はローカル ファイルを削除してください (例: `gh secret set AZURE_CREDENTIALS < azure-credentials.json`)。
+
+これでデプロイ時に Bicep テンプレートの適用・リソース グループ作成・Container Apps / Cosmos DB / Cost Management のロール割り当てが自動で実行でき、`usage-guardian.csx` やアプリ内の使用量表示が動作します。
+
 ### デフォルトのワークフロー動作
 - `main`ブランチへのpushで`.github/workflows/deploy.yml`がトリガーされます。
 - ワークフローはDockerイメージをビルドし、`ghcr.io/<owner>/<repo>`にpushし、その後新しいタグでAzure Container Appsを再デプロイします。

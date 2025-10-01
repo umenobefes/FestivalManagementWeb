@@ -552,46 +552,53 @@ jobs:
           echo "✅ Managed Identity Principal ID: $PRINCIPAL_ID"
         fi
 
-    - name: Assign Azure roles to Managed Identity
+    - name: Assign Azure roles to Managed Identity (Fallback)
       if: steps.deploy-application.outputs.containerAppPrincipalId != '' && steps.deploy-application.outputs.containerAppPrincipalId != 'null'
+      continue-on-error: true
       env:
         PRINCIPAL_ID: ${{ steps.deploy-application.outputs.containerAppPrincipalId }}
         RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
         COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
       run: |
-        echo "🔐 Assigning Azure roles to Managed Identity..."
+        echo "🔐 Verifying Azure role assignments (Bicep may have already assigned these)..."
 
         # Assign Reader role to resource group
         if az role assignment create \
           --assignee "$PRINCIPAL_ID" \
           --role "Reader" \
-          --resource-group "$RESOURCE_GROUP" \
-          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-reader.log | grep -qi "already exists"; then
           echo "ℹ️  Reader role already assigned to resource group"
-        else
+        elif grep -qi "Created role assignment" /tmp/role-reader.log; then
           echo "✅ Assigned Reader role to resource group"
+        else
+          echo "⚠️  Could not assign Reader role (may require User Access Administrator permission)"
+          cat /tmp/role-reader.log
         fi
 
         # Assign Monitoring Reader role to resource group
         if az role assignment create \
           --assignee "$PRINCIPAL_ID" \
           --role "Monitoring Reader" \
-          --resource-group "$RESOURCE_GROUP" \
-          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-monitoring.log | grep -qi "already exists"; then
           echo "ℹ️  Monitoring Reader role already assigned to resource group"
-        else
+        elif grep -qi "Created role assignment" /tmp/role-monitoring.log; then
           echo "✅ Assigned Monitoring Reader role to resource group"
+        else
+          echo "⚠️  Could not assign Monitoring Reader role (may require User Access Administrator permission)"
+          cat /tmp/role-monitoring.log
         fi
 
         # Assign Cost Management Reader role to subscription
         if az role assignment create \
           --assignee "$PRINCIPAL_ID" \
           --role "Cost Management Reader" \
-          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" \
-          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" 2>&1 | tee /tmp/role-cost.log | grep -qi "already exists"; then
           echo "ℹ️  Cost Management Reader role already assigned to subscription"
-        else
+        elif grep -qi "Created role assignment" /tmp/role-cost.log; then
           echo "✅ Assigned Cost Management Reader role to subscription"
+        else
+          echo "⚠️  Could not assign Cost Management Reader role (may require User Access Administrator permission)"
+          cat /tmp/role-cost.log
         fi
 
         # Assign Monitoring Reader role to Cosmos DB (for vCore metrics)
@@ -599,16 +606,19 @@ jobs:
         if az role assignment create \
           --assignee "$PRINCIPAL_ID" \
           --role "Monitoring Reader" \
-          --scope "$COSMOS_SCOPE" \
-          2>&1 | grep -q "already exists\|The role assignment already exists"; then
+          --scope "$COSMOS_SCOPE" 2>&1 | tee /tmp/role-cosmos.log | grep -qi "already exists"; then
           echo "ℹ️  Monitoring Reader role already assigned to Cosmos DB"
-        else
+        elif grep -qi "Created role assignment" /tmp/role-cosmos.log; then
           echo "✅ Assigned Monitoring Reader role to Cosmos DB"
+        else
+          echo "⚠️  Could not assign Monitoring Reader role to Cosmos DB (may require User Access Administrator permission)"
+          cat /tmp/role-cosmos.log
         fi
 
         echo ""
-        echo "🎉 All required roles have been assigned successfully!"
-        echo "   The Container App can now access Azure metrics and cost data."
+        echo "✅ Role assignment verification completed"
+        echo "   If roles were already assigned by Bicep, the app is ready to use."
+        echo "   If warnings appeared, ensure the service principal has User Access Administrator permission."
 
     - name: Cleanup secrets
       if: always()
