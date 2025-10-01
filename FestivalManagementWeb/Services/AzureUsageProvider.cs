@@ -160,23 +160,39 @@ namespace FestivalManagementWeb.Services
 
                     if (resources.TryGetProperty("cpu", out var cpuProp))
                     {
-                        var cpuStr = cpuProp.GetString();
-                        if (!string.IsNullOrEmpty(cpuStr) && double.TryParse(cpuStr, out var cpuVal))
+                        // Handle both number and string types
+                        if (cpuProp.ValueKind == JsonValueKind.Number)
                         {
-                            vcpu = cpuVal;
+                            vcpu = cpuProp.GetDouble();
+                        }
+                        else if (cpuProp.ValueKind == JsonValueKind.String)
+                        {
+                            var cpuStr = cpuProp.GetString();
+                            if (!string.IsNullOrEmpty(cpuStr) && double.TryParse(cpuStr, out var cpuVal))
+                            {
+                                vcpu = cpuVal;
+                            }
                         }
                     }
 
                     if (resources.TryGetProperty("memory", out var memProp))
                     {
-                        var memStr = memProp.GetString();
-                        if (!string.IsNullOrEmpty(memStr))
+                        // Handle both number and string types
+                        if (memProp.ValueKind == JsonValueKind.Number)
                         {
-                            // Memory is in format like "0.5Gi" or "1Gi"
-                            memStr = memStr.Replace("Gi", "").Replace("gi", "").Trim();
-                            if (double.TryParse(memStr, out var memVal))
+                            memoryGiB = memProp.GetDouble();
+                        }
+                        else if (memProp.ValueKind == JsonValueKind.String)
+                        {
+                            var memStr = memProp.GetString();
+                            if (!string.IsNullOrEmpty(memStr))
                             {
-                                memoryGiB = memVal;
+                                // Memory is in format like "0.5Gi" or "1Gi"
+                                memStr = memStr.Replace("Gi", "").Replace("gi", "").Trim();
+                                if (double.TryParse(memStr, out var memVal))
+                                {
+                                    memoryGiB = memVal;
+                                }
                             }
                         }
                     }
