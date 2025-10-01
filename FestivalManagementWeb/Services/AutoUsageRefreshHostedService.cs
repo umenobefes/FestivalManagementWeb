@@ -71,49 +71,39 @@ namespace FestivalManagementWeb.Services
             var nextCost = DateTime.UtcNow;
             var nextCosmos = DateTime.UtcNow;
 
+            // Startup: immediately fetch all data with retry
+            if (azureEnabled)
+            {
+                await RefreshMetricsWithRetryAsync(3, stoppingToken);
+                await RefreshCostWithRetryAsync(3, stoppingToken);
+                nextMetrics = DateTime.UtcNow + metricsEvery;
+                nextCost = DateTime.UtcNow + costEvery;
+            }
+            if (cosmosEnabled)
+            {
+                await RefreshCosmosWithRetryAsync(3, stoppingToken);
+                nextCosmos = DateTime.UtcNow + cosmosEvery;
+            }
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 var now = DateTime.UtcNow;
 
                 if (azureEnabled && now >= nextMetrics)
                 {
-                    try
-                    {
-                        var (req, tx) = await _provider.GetMetricsMonthToDateAsync(stoppingToken).ConfigureAwait(false);
-                        _state.SetMetrics(req, tx, now);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "AzureUsage metrics refresh failed");
-                    }
+                    await RefreshMetricsWithRetryAsync(1, stoppingToken);
                     nextMetrics = now + metricsEvery;
                 }
 
                 if (azureEnabled && now >= nextCost)
                 {
-                    try
-                    {
-                        var (vcpu, gib) = await _provider.GetCostMonthToDateAsync(stoppingToken).ConfigureAwait(false);
-                        _state.SetCost(vcpu, gib, now);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "AzureUsage cost refresh failed");
-                    }
+                    await RefreshCostWithRetryAsync(1, stoppingToken);
                     nextCost = now + costEvery;
                 }
 
                 if (cosmosEnabled && now >= nextCosmos)
                 {
-                    try
-                    {
-                        var cosmosStatus = await _cosmosProvider.GetStatusAsync(stoppingToken).ConfigureAwait(false);
-                        _state.SetCosmosStatus(cosmosStatus);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Cosmos free-tier refresh failed");
-                    }
+                    await RefreshCosmosWithRetryAsync(1, stoppingToken);
                     nextCosmos = now + cosmosEvery;
                 }
 
@@ -124,6 +114,81 @@ namespace FestivalManagementWeb.Services
                 catch (OperationCanceledException)
                 {
                     break;
+                }
+            }
+        }
+
+        private async Task RefreshMetricsWithRetryAsync(int maxRetries, CancellationToken ct)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
+                {
+                    var (req, tx) = await _provider.GetMetricsMonthToDateAsync(ct).ConfigureAwait(false);
+                    _state.SetMetrics(req, tx, DateTime.UtcNow);
+                    _logger.LogInformation("AzureUsage metrics refreshed: Requests={Requests}, TxBytes={TxBytes}", req, tx);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (i == maxRetries - 1)
+                    {
+                        _logger.LogWarning(ex, "AzureUsage metrics refresh failed after {Retries} retries", maxRetries);
+                    }
+                    else
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        private async Task RefreshCostWithRetryAsync(int maxRetries, CancellationToken ct)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
+                {
+                    var (vcpu, gib) = await _provider.GetCostMonthToDateAsync(ct).ConfigureAwait(false);
+                    _state.SetCost(vcpu, gib, DateTime.UtcNow);
+                    _logger.LogInformation("AzureUsage cost refreshed: vCPU-seconds={VcpuSeconds}, GiB-seconds={GiBSeconds}", vcpu, gib);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (i == maxRetries - 1)
+                    {
+                        _logger.LogWarning(ex, "AzureUsage cost refresh failed after {Retries} retries", maxRetries);
+                    }
+                    else
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        private async Task RefreshCosmosWithRetryAsync(int maxRetries, CancellationToken ct)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
+                {
+                    var cosmosStatus = await _cosmosProvider.GetStatusAsync(ct).ConfigureAwait(false);
+                    _state.SetCosmosStatus(cosmosStatus);
+                    _logger.LogInformation("Cosmos free-tier status refreshed");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (i == maxRetries - 1)
+                    {
+                        _logger.LogWarning(ex, "Cosmos free-tier refresh failed after {Retries} retries", maxRetries);
+                    }
+                    else
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+                    }
                 }
             }
         }
