@@ -30,49 +30,43 @@ FestivalManagementWeb is an ASP.NET Core 8.0 application for managing festival c
 
 ## Azure CLI Setup
 
-The Azure CLI is required for deploying and managing resources. Install version 2.64 or later.
+The Azure CLI is required for deploying and managing resources. **We recommend using Azure Cloud Shell** for the best compatibility with the commands in this guide.
 
-### Windows
+### Azure Cloud Shell (Recommended)
 
+The easiest way to run the deployment commands is through [Azure Cloud Shell](https://shell.azure.com):
+
+1. Open https://shell.azure.com in your browser
+2. Sign in with your Azure account
+3. Select **Bash** environment
+4. Azure CLI is pre-installed and always up-to-date
+
+**Benefits:**
+- No local installation required
+- Multi-line commands with `\` work correctly
+- Always authenticated with your Azure account
+- Consistent Linux/Bash environment
+
+### Local Installation (Alternative)
+
+If you prefer to install locally:
+
+**Windows:**
 ```powershell
 winget install Microsoft.AzureCLI
 ```
 
-After installation, restart your terminal and verify:
-```bash
-az version
-```
-
-### macOS
-
+**macOS:**
 ```bash
 brew update && brew install azure-cli
 ```
 
-### Linux
-
-**Ubuntu/Debian:**
+**Linux (Ubuntu/Debian):**
 ```bash
 curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 ```
 
-**RHEL/CentOS/Fedora:**
-```bash
-sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
-sudo dnf install -y azure-cli
-```
-
-**Arch Linux:**
-```bash
-yay -S azure-cli
-```
-
-### Azure Cloud Shell (Browser-based alternative)
-
-If you prefer not to install locally, use [Azure Cloud Shell](https://shell.azure.com) which comes with Azure CLI pre-installed. Access it directly from your browser with your Azure account.
-
-### Verify Installation
-
+After installation, verify and login:
 ```bash
 az version
 az login
@@ -98,6 +92,10 @@ The deploy workflow relies on the `AZURE_CREDENTIALS` secret to both provision r
 
 We recommend granting the principal `Contributor` **and** `User Access Administrator` on the subscription (or a single `Owner` assignment if that fits your policies). The combination keeps resource changes limited to deployment tasks while permitting the GitHub Action to grant the managed identity the monitoring roles it needs.
 
+> **💡 Recommended:** Run the following commands in [Azure Cloud Shell](https://shell.azure.com) (Bash mode) for the best experience. Multi-line commands work correctly there.
+>
+> **Note:** The `--sdk-auth` flag will show a deprecation warning. This is expected and can be safely ignored - the flag still works and is required for the current GitHub Actions workflow.
+
 1. Sign in to Azure and locate the subscription you plan to use:
    ```bash
    az login
@@ -116,15 +114,16 @@ We recommend granting the principal `Contributor` **and** `User Access Administr
    ```
    The command writes `azure-credentials.json`. Upload this file verbatim to the `AZURE_CREDENTIALS` secret later. Copy the `appId` value printed in the JSON so you can use it in the next step.
 
-3. Grant the same service principal `User Access Administrator` so the workflow can attach monitoring roles at deploy time. If you did not record the `appId`, run the first command to fetch it and **copy the value it prints**:
+3. Grant the same service principal `User Access Administrator` so the workflow can attach monitoring roles at deploy time. Run the following commands to fetch the service principal's object ID and assign the role:
    ```bash
-   az ad sp show --id <service-principal-name> --query appId -o tsv
+   OBJECT_ID=$(az ad sp show --id <service-principal-name> --query id -o tsv)
    az role assignment create \
-     --assignee <app-id> \
+     --assignee-object-id $OBJECT_ID \
+     --assignee-principal-type ServicePrincipal \
      --role "User Access Administrator" \
      --scope /subscriptions/<subscription-id>
    ```
-   Paste that value in place of `<app-id>` when you run the second command.
+   Using `--assignee-object-id` with `--assignee-principal-type` avoids Graph API permission requirements and prevents warnings during role assignment.
 
 4. (Optional) After the initial deployment creates `rg-<namePrefix>`, you can scope the `Contributor` role down to `/subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>` while keeping `User Access Administrator` at the subscription level for ongoing role assignments.
 5. Upload `azure-credentials.json` to the repository's `AZURE_CREDENTIALS` secret (for example, `gh secret set AZURE_CREDENTIALS < azure-credentials.json`) and delete the local file once the secret is saved.

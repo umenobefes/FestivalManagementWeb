@@ -30,49 +30,43 @@ FestivalManagementWebは、フェスティバルコンテンツを管理する�
 
 ## Azure CLI セットアップ
 
-Azure CLI はリソースのデプロイと管理に必要です。バージョン 2.64 以降をインストールしてください。
+Azure CLI はリソースのデプロイと管理に必要です。**このガイドのコマンドとの互換性のため、Azure Cloud Shell の使用を推奨します。**
 
-### Windows
+### Azure Cloud Shell（推奨）
 
+デプロイコマンドを実行する最も簡単な方法は、[Azure Cloud Shell](https://shell.azure.com) を使用することです：
+
+1. https://shell.azure.com をブラウザで開く
+2. Azure アカウントでサインイン
+3. **Bash** 環境を選択
+4. Azure CLI がプリインストールされ、常に最新の状態
+
+**利点:**
+- ローカルインストール不要
+- `\` による複数行コマンドが正しく動作
+- Azure アカウントで常に認証済み
+- 一貫した Linux/Bash 環境
+
+### ローカルインストール（代替手段）
+
+ローカルにインストールする場合：
+
+**Windows:**
 ```powershell
 winget install Microsoft.AzureCLI
 ```
 
-インストール後、ターミナルを再起動して確認：
-```bash
-az version
-```
-
-### macOS
-
+**macOS:**
 ```bash
 brew update && brew install azure-cli
 ```
 
-### Linux
-
-**Ubuntu/Debian:**
+**Linux (Ubuntu/Debian):**
 ```bash
 curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 ```
 
-**RHEL/CentOS/Fedora:**
-```bash
-sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
-sudo dnf install -y azure-cli
-```
-
-**Arch Linux:**
-```bash
-yay -S azure-cli
-```
-
-### Azure Cloud Shell（ブラウザベースの代替手段）
-
-ローカルインストールを避けたい場合は、[Azure Cloud Shell](https://shell.azure.com) を使用してください。Azure CLI がプリインストールされており、Azure アカウントでブラウザから直接アクセスできます。
-
-### インストールの確認
-
+インストール後、確認とログイン：
 ```bash
 az version
 az login
@@ -98,6 +92,10 @@ GitHub Actions のデプロイワークフローは、`AZURE_CREDENTIALS` に保
 
 推奨構成はサブスクリプションに対して `Contributor` と `User Access Administrator` を両方付与することです (ポリシーが許せば `Owner` 1 つでも可)。`Contributor` でデプロイ作業を制限しつつ、`User Access Administrator` でロール割り当てが行えます。
 
+> **💡 推奨:** 以下のコマンドは [Azure Cloud Shell](https://shell.azure.com) （Bash モード）で実行することを推奨します。複数行コマンドが正しく動作します。
+>
+> **注意:** `--sdk-auth` フラグは非推奨の警告が表示されますが、これは想定内で無視して問題ありません。フラグは現在も動作し、現在の GitHub Actions ワークフローに必要です。
+
 1. Azure にサインインし、対象サブスクリプションを確認します。
    ```bash
    az login
@@ -116,15 +114,16 @@ GitHub Actions のデプロイワークフローは、`AZURE_CREDENTIALS` に保
    ```
    生成された `azure-credentials.json` はそのまま `AZURE_CREDENTIALS` シークレットの値になります。ファイルに表示される `appId` の値をコピーして、次の手順で使えるようにしておきます。
 
-3. 同じサービス プリンシパルに `User Access Administrator` を付与し、デプロイ時にロール割り当てが行えるようにします。`appId` を控えていない場合は最初のコマンドで取得し、その出力値をコピーしてください。
+3. 同じサービス プリンシパルに `User Access Administrator` を付与し、デプロイ時にロール割り当てが行えるようにします。以下のコマンドでサービス プリンシパルのオブジェクト ID を取得してロールを割り当てます。
    ```bash
-   az ad sp show --id <service-principal-name> --query appId -o tsv
+   OBJECT_ID=$(az ad sp show --id <service-principal-name> --query id -o tsv)
    az role assignment create \
-     --assignee <app-id> \
+     --assignee-object-id $OBJECT_ID \
+     --assignee-principal-type ServicePrincipal \
      --role "User Access Administrator" \
      --scope /subscriptions/<subscription-id>
    ```
-   コピーした値を `<app-id>` の代わりに貼り付けて実行します。
+   `--assignee-object-id` と `--assignee-principal-type` を使用することで、Graph API 権限が不要になり、ロール割り当て時の警告を回避できます。
 
 4. (任意) 初回デプロイで `rg-<namePrefix>` が作成された後は、`Contributor` のスコープを `/subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>` に絞り、`User Access Administrator` はサブスクリプションに残すと継続的にロール付与が可能です。
 5. `azure-credentials.json` の内容をリポジトリの `AZURE_CREDENTIALS` シークレットへ登録し、登録後はローカル ファイルを削除してください (例: `gh secret set AZURE_CREDENTIALS < azure-credentials.json`)。

@@ -564,7 +564,8 @@ jobs:
 
         # Assign Reader role to resource group
         if az role assignment create \
-          --assignee "$PRINCIPAL_ID" \
+          --assignee-object-id "$PRINCIPAL_ID" \
+          --assignee-principal-type ServicePrincipal \
           --role "Reader" \
           --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-reader.log | grep -qi "already exists"; then
           echo "ℹ️  Reader role already assigned to resource group"
@@ -577,7 +578,8 @@ jobs:
 
         # Assign Monitoring Reader role to resource group
         if az role assignment create \
-          --assignee "$PRINCIPAL_ID" \
+          --assignee-object-id "$PRINCIPAL_ID" \
+          --assignee-principal-type ServicePrincipal \
           --role "Monitoring Reader" \
           --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-monitoring.log | grep -qi "already exists"; then
           echo "ℹ️  Monitoring Reader role already assigned to resource group"
@@ -590,7 +592,8 @@ jobs:
 
         # Assign Cost Management Reader role to subscription
         if az role assignment create \
-          --assignee "$PRINCIPAL_ID" \
+          --assignee-object-id "$PRINCIPAL_ID" \
+          --assignee-principal-type ServicePrincipal \
           --role "Cost Management Reader" \
           --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" 2>&1 | tee /tmp/role-cost.log | grep -qi "already exists"; then
           echo "ℹ️  Cost Management Reader role already assigned to subscription"
@@ -604,7 +607,8 @@ jobs:
         # Assign Monitoring Reader role to Cosmos DB (for vCore metrics)
         COSMOS_SCOPE="/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME"
         if az role assignment create \
-          --assignee "$PRINCIPAL_ID" \
+          --assignee-object-id "$PRINCIPAL_ID" \
+          --assignee-principal-type ServicePrincipal \
           --role "Monitoring Reader" \
           --scope "$COSMOS_SCOPE" 2>&1 | tee /tmp/role-cosmos.log | grep -qi "already exists"; then
           echo "ℹ️  Monitoring Reader role already assigned to Cosmos DB"
