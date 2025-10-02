@@ -14,15 +14,25 @@ param cosmosDbAccountName string = '${namePrefix}-cosmos'
 @description('Container Apps environment name')
 param containerAppsEnvironmentName string = '${namePrefix}-env'
 
-// Container Apps Environment
-resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
+@description('Whether to create new Container Apps Environment')
+param createNewEnvironment bool = false
+
+@description('Whether to create new Cosmos DB')
+param createNewCosmosDb bool = false
+
+// Container Apps Environment - create or reference existing
+resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = if (createNewEnvironment) {
   name: containerAppsEnvironmentName
   location: location
   properties: {}
 }
 
-// Cosmos DB for MongoDB (vCore) - Free Tier
-resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' = {
+resource existingContainerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = if (!createNewEnvironment) {
+  name: containerAppsEnvironmentName
+}
+
+// Cosmos DB for MongoDB (vCore) - Free Tier - create or reference existing
+resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' = if (createNewCosmosDb) {
   name: cosmosDbAccountName
   location: location
   properties: {
@@ -46,8 +56,12 @@ resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' = {
   }
 }
 
-// Firewall rule to allow Azure services
-resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRules@2024-07-01' = {
+resource existingCosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' existing = if (!createNewCosmosDb) {
+  name: cosmosDbAccountName
+}
+
+// Firewall rule to allow Azure services - only create if Cosmos DB is new
+resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRules@2024-07-01' = if (createNewCosmosDb) {
   parent: cosmosMongoCluster
   name: 'AllowAllAzureServices'
   properties: {
@@ -57,6 +71,6 @@ resource mongoClusterFirewallRule 'Microsoft.DocumentDB/mongoClusters/firewallRu
 }
 
 // Outputs
-output environmentId string = containerAppsEnvironment.id
-output cosmosMongoClusterName string = cosmosMongoCluster.name
+output environmentId string = createNewEnvironment ? containerAppsEnvironment.id : existingContainerAppsEnvironment.id
+output cosmosMongoClusterName string = createNewCosmosDb ? cosmosMongoCluster.name : existingCosmosMongoCluster.name
 output cosmosDbAccountName string = cosmosDbAccountName

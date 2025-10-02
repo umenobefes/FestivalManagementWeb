@@ -139,12 +139,18 @@ GitHub Actions のデプロイワークフローは、`AZURE_CREDENTIALS` に保
 GitHub Actionsで**Run workflow**を使用して同じワークフローを実行し、`imageTag`や`namePrefix`などの項目を上書きできます。Bicepテンプレートは計算された`containerRegistryServer`と`containerRegistryRepository`をインラインパラメータで受け取るため、一般的なケースでは手動編集は不要です。
 
 ## Bicepデプロイメントの詳細
-`infra/main.bicep`のテンプレートでプロビジョニングされるもの：
+デプロイメントは2段階のアプローチを使用します：
+
+**ステージ1: インフラストラクチャ (`infra/infrastructure.bicep`)**
 - Azure Container Apps管理環境
 - Azure Cosmos DB（MongoDB API、vCore）フリーティア構成
-- Application Insights + Log Analyticsワークスペース
+
+**ステージ2: アプリケーション (`infra/application.bicep`)**
 - システム割り当てIDを持つContainer App
+- Application Insights + Log Analyticsワークスペース（オプション）
 - サポート構成（シークレット、環境変数、スケーリングルール）
+
+両方のテンプレートは冪等性があり、既存のリソースを安全に参照できるため、既存コンポーネントを再作成せずに部分的なインフラストラクチャ更新が可能です。
 
 > コンテナレジストリ自体はBicepで**作成されません**。デプロイ前にGHCR（`ghcr.io/<owner>/<repo>:<tag>`）にイメージが存在する必要があります。ワークフローは既にイメージを公開し、解決された名前をBicepデプロイメントに渡します。
 

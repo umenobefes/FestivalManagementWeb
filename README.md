@@ -139,12 +139,18 @@ After these steps the workflow can deploy Bicep templates, create the resource g
 Run the same workflow with **Run workflow** in GitHub Actions to override items such as `imageTag` or `namePrefix`. The Bicep template receives the computed `containerRegistryServer` and `containerRegistryRepository` via inline parameters, so no manual edits are required for the common case.
 
 ## Bicep Deployment Details
-The template at `infra/main.bicep` provisions:
+The deployment uses a two-stage approach:
+
+**Stage 1: Infrastructure (`infra/infrastructure.bicep`)**
 - Azure Container Apps managed environment
 - Azure Cosmos DB (MongoDB API, vCore) configured for the Free Tier
-- Application Insights + Log Analytics workspace
+
+**Stage 2: Application (`infra/application.bicep`)**
 - Container App with system-assigned identity
+- Application Insights + Log Analytics workspace (optional)
 - Supporting configuration (secrets, environment variables, scaling rules)
+
+Both templates are idempotent and can safely reference existing resources, allowing partial infrastructure updates without recreating existing components.
 
 > The container registry itself is **not** created by Bicep. Images must exist in GHCR (`ghcr.io/<owner>/<repo>:<tag>`) before deployment. The workflow already publishes the image and passes the resolved name to the Bicep deployment.
 

@@ -248,24 +248,38 @@ jobs:
           COSMOS_EXISTS=true
         fi
 
-        # Only deploy if something is missing
-        if [ "$ENV_EXISTS" = false ] || [ "$COSMOS_EXISTS" = false ]; then
-          echo "Deploying missing infrastructure..."
-          az deployment group create \
-            --name "infra-${{ github.run_number }}-${{ github.run_attempt }}" \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file infra/infrastructure.bicep \
-            --parameters namePrefix="$NAME_PREFIX" \
-            --parameters location="${{ steps.extract-params.outputs.location }}" \
-            --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
-            --output json > infra-output.json
+        # Determine which resources need to be created
+        CREATE_NEW_ENVIRONMENT=false
+        CREATE_NEW_COSMOS=false
 
-          ENV_ID=$(jq -r '.properties.outputs.environmentId.value' infra-output.json)
-          COSMOS_NAME=$(jq -r '.properties.outputs.cosmosDbAccountName.value' infra-output.json)
+        if [ "$ENV_EXISTS" = false ]; then
+          CREATE_NEW_ENVIRONMENT=true
+          echo "Will create new Container Apps Environment"
         else
-          echo "All infrastructure already exists, skipping deployment"
-          ENV_ID=$(az containerapp env show --name "$ENV_NAME" --resource-group "$RESOURCE_GROUP" --query "id" -o tsv)
+          echo "Will reference existing Container Apps Environment"
         fi
+
+        if [ "$COSMOS_EXISTS" = false ]; then
+          CREATE_NEW_COSMOS=true
+          echo "Will create new Cosmos DB"
+        else
+          echo "Will reference existing Cosmos DB"
+        fi
+
+        # Always run deployment to ensure outputs are available
+        az deployment group create \
+          --name "infra-${{ github.run_number }}-${{ github.run_attempt }}" \
+          --resource-group "$RESOURCE_GROUP" \
+          --template-file infra/infrastructure.bicep \
+          --parameters namePrefix="$NAME_PREFIX" \
+          --parameters location="${{ steps.extract-params.outputs.location }}" \
+          --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
+          --parameters createNewEnvironment=$CREATE_NEW_ENVIRONMENT \
+          --parameters createNewCosmosDb=$CREATE_NEW_COSMOS \
+          --output json > infra-output.json
+
+        ENV_ID=$(jq -r '.properties.outputs.environmentId.value' infra-output.json)
+        COSMOS_NAME=$(jq -r '.properties.outputs.cosmosDbAccountName.value' infra-output.json)
 
         echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
         echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
