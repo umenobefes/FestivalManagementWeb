@@ -44,7 +44,7 @@ Register the following secrets in the repository that runs the workflow:
 
 ### Generating `AZURE_CREDENTIALS` with Role Assignment Permissions
 
-The deploy workflow relies on the `AZURE_CREDENTIALS` secret to both provision resources and attach Azure Monitor / Cost Management / Cosmos DB roles to the Container App identity. The service principal stored in this secret must be allowed to create role assignments at the subscription scope; otherwise the automatic role configuration in `deploy.yml` and `usage-guardian.csx` will fail.
+The deploy workflow relies on the `AZURE_CREDENTIALS` secret to both provision resources and attach Azure Monitor / Cost Management / Cosmos DB for MongoDB roles to the Container App identity. The service principal stored in this secret must be allowed to create role assignments at the subscription scope; otherwise the automatic role configuration in `deploy.yml` and `usage-guardian.csx` will fail.
 
 We recommend granting the principal `Contributor` **and** `User Access Administrator` on the subscription (or a single `Owner` assignment if that fits your policies). The combination keeps resource changes limited to deployment tasks while permitting the GitHub Action to grant the managed identity the monitoring roles it needs.
 
@@ -58,14 +58,21 @@ We recommend granting the principal `Contributor` **and** `User Access Administr
 2. Set the CLI context to that subscription and create a GitHub Actions service principal with `Contributor` rights. Pick any globally unique service principal name (for example, `https://gha-festival-web`) and replace `<service-principal-name>` with it:
    ```bash
    az account set --subscription <subscription-id>
-   az ad sp create-for-rbac      --name <service-principal-name>      --role Contributor      --scopes /subscriptions/<subscription-id>      --sdk-auth > azure-credentials.json
+   az ad sp create-for-rbac \
+     --name <service-principal-name> \
+     --role Contributor \
+     --scopes /subscriptions/<subscription-id> \
+     --sdk-auth > azure-credentials.json
    ```
    The command writes `azure-credentials.json`. Upload this file verbatim to the `AZURE_CREDENTIALS` secret later. Copy the `appId` value printed in the JSON so you can use it in the next step.
 
 3. Grant the same service principal `User Access Administrator` so the workflow can attach monitoring roles at deploy time. If you did not record the `appId`, run the first command to fetch it and **copy the value it prints**:
    ```bash
    az ad sp show --id <service-principal-name> --query appId -o tsv
-   az role assignment create      --assignee <app-id>      --role "User Access Administrator"      --scope /subscriptions/<subscription-id>
+   az role assignment create \
+     --assignee <app-id> \
+     --role "User Access Administrator" \
+     --scope /subscriptions/<subscription-id>
    ```
    Paste that value in place of `<app-id>` when you run the second command.
 

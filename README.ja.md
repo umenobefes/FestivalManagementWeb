@@ -44,7 +44,7 @@ FestivalManagementWebは、フェスティバルコンテンツを管理する�
 
 ### `AZURE_CREDENTIALS` のロール割り当て権限を付与する手順
 
-GitHub Actions のデプロイワークフローは、`AZURE_CREDENTIALS` に保存したサービス プリンシパルを使って Azure リソースを作成し、Azure Monitor / Cost Management / Cosmos DB (MongoDB API) のロールをコンテナー アプリのマネージド ID に自動で付与します。そのため、このサービス プリンシパルにはサブスクリプション レベルでロール割り当てを作成できる権限が必要です。
+GitHub Actions のデプロイワークフローは、`AZURE_CREDENTIALS` に保存したサービス プリンシパルを使って Azure リソースを作成し、Azure Monitor / Cost Management / Cosmos DB for MongoDB のロールをコンテナー アプリのマネージド ID に自動で付与します。そのため、このサービス プリンシパルにはサブスクリプション レベルでロール割り当てを作成できる権限が必要です。
 
 推奨構成はサブスクリプションに対して `Contributor` と `User Access Administrator` を両方付与することです (ポリシーが許せば `Owner` 1 つでも可)。`Contributor` でデプロイ作業を制限しつつ、`User Access Administrator` でロール割り当てが行えます。
 
@@ -58,14 +58,21 @@ GitHub Actions のデプロイワークフローは、`AZURE_CREDENTIALS` に保
 2. CLI のコンテキストをそのサブスクリプションに切り替え、GitHub Actions 用サービス プリンシパルを `Contributor` 権限付きで作成します。グローバルに一意なサービス プリンシパル名 (例: `https://gha-festival-web`) を決め、`<service-principal-name>` を置き換えてください。
    ```bash
    az account set --subscription <subscription-id>
-   az ad sp create-for-rbac      --name <service-principal-name>      --role Contributor      --scopes /subscriptions/<subscription-id>      --sdk-auth > azure-credentials.json
+   az ad sp create-for-rbac \
+     --name <service-principal-name> \
+     --role Contributor \
+     --scopes /subscriptions/<subscription-id> \
+     --sdk-auth > azure-credentials.json
    ```
    生成された `azure-credentials.json` はそのまま `AZURE_CREDENTIALS` シークレットの値になります。ファイルに表示される `appId` の値をコピーして、次の手順で使えるようにしておきます。
 
 3. 同じサービス プリンシパルに `User Access Administrator` を付与し、デプロイ時にロール割り当てが行えるようにします。`appId` を控えていない場合は最初のコマンドで取得し、その出力値をコピーしてください。
    ```bash
    az ad sp show --id <service-principal-name> --query appId -o tsv
-   az role assignment create      --assignee <app-id>      --role "User Access Administrator"      --scope /subscriptions/<subscription-id>
+   az role assignment create \
+     --assignee <app-id> \
+     --role "User Access Administrator" \
+     --scope /subscriptions/<subscription-id>
    ```
    コピーした値を `<app-id>` の代わりに貼り付けて実行します。
 
