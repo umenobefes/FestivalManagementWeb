@@ -58,9 +58,26 @@ jobs:
 
     - name: Extract parameters for resource group creation
       id: extract-params
+      env:
+        NAME_PREFIX_OVERRIDE: ${{ vars.NAME_PREFIX || '' }}
+        LOCATION_OVERRIDE: ${{ vars.LOCATION || '' }}
       run: |
-        NAME_PREFIX=$(jq -r '.parameters.namePrefix.value' infra/parameters.json)
-        LOCATION=$(jq -r '.parameters.location.value' infra/parameters.json)
+        # Use environment variable if set, otherwise read from parameters.json
+        if [ -n "$NAME_PREFIX_OVERRIDE" ]; then
+          NAME_PREFIX="$NAME_PREFIX_OVERRIDE"
+          echo "Using NAME_PREFIX from environment variable: $NAME_PREFIX"
+        else
+          NAME_PREFIX=$(jq -r '.parameters.namePrefix.value' infra/parameters.json)
+          echo "Using NAME_PREFIX from parameters.json: $NAME_PREFIX"
+        fi
+
+        if [ -n "$LOCATION_OVERRIDE" ]; then
+          LOCATION="$LOCATION_OVERRIDE"
+          echo "Using LOCATION from environment variable: $LOCATION"
+        else
+          LOCATION=$(jq -r '.parameters.location.value' infra/parameters.json)
+          echo "Using LOCATION from parameters.json: $LOCATION"
+        fi
 
         # Validate required parameters
         if [ -z "$NAME_PREFIX" ] || [ "$NAME_PREFIX" = "null" ]; then
