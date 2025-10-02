@@ -604,23 +604,9 @@ jobs:
           cat /tmp/role-cost.log
         fi
 
-        # Assign Monitoring Reader role to Cosmos DB (for vCore metrics)
-        COSMOS_SCOPE="/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME"
-        if az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type ServicePrincipal \
-          --role "Monitoring Reader" \
-          --scope "$COSMOS_SCOPE" 2>&1 | tee /tmp/role-cosmos.log | grep -qi "already exists"; then
-          echo "ℹ️  Monitoring Reader role already assigned to Cosmos DB"
-        elif grep -qi "Created role assignment" /tmp/role-cosmos.log; then
-          echo "✅ Assigned Monitoring Reader role to Cosmos DB"
-        else
-          echo "⚠️  Could not assign Monitoring Reader role to Cosmos DB (may require User Access Administrator permission)"
-          cat /tmp/role-cosmos.log
-        fi
-
         echo ""
         echo "✅ Role assignment verification completed"
+        echo "   Monitoring Reader at resource group scope provides access to all resource metrics, including Cosmos DB."
         echo "   If roles were already assigned by Bicep, the app is ready to use."
         echo "   If warnings appeared, ensure the service principal has User Access Administrator permission."
 

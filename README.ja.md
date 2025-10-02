@@ -157,9 +157,10 @@ GitHub Actionsで**Run workflow**を使用して同じワークフローを実�
 ワークフローは以下のロールをContainer AppのManaged Identityに割り当てます：
 
 1. **閲覧者（Reader）**（リソースグループスコープ） - リソースメタデータとCosmos DB情報へのアクセス
-2. **監視閲覧者（Monitoring Reader）**（リソースグループスコープ） - Azure Monitorメトリクス（CPU、メモリ、リクエスト、データ転送）へのアクセス
+2. **監視閲覧者（Monitoring Reader）**（リソースグループスコープ） - すべてのリソースのAzure Monitorメトリクスへのアクセス（Container AppsのCPU、メモリ、リクエスト、データ転送、およびCosmos DB vCoreメトリクス）
 3. **Cost Management 閲覧者（Cost Management Reader）**（サブスクリプションスコープ） - Azure Cost Managementデータ（vCPU秒、GiB秒）へのアクセス
-4. **監視閲覧者（Monitoring Reader）**（Cosmos DBスコープ） - Cosmos DB vCoreメトリクス（StorageUsed、CPU、Memory）へのアクセス
+
+> **注意:** リソースグループスコープの監視閲覧者ロールは、グループ内のすべてのリソース（Cosmos DB for MongoDB vCore含む）のメトリクスへのアクセスを提供します。Cosmos DBへの追加のロール割り当ては不要です。
 
 ### 手動での割り当て（必要な場合）
 
@@ -193,6 +194,8 @@ GitHub Actionsで**Run workflow**を使用して同じワークフローを実�
    - ロール：**Cost Management 閲覧者**
    - **保存**をクリック
 
+   > **注意:** リソースグループスコープの監視閲覧者ロールは、Cosmos DBを含むすべてのリソースのメトリクスへのアクセスを提供します。追加のロール割り当ては不要です。
+
 #### 方法2: Azure CLI
 
 ```bash
@@ -206,36 +209,33 @@ echo "Principal ID: $PRINCIPAL_ID"
 
 # リソースグループに閲覧者ロールを割り当て
 az role assignment create \
-  --assignee $PRINCIPAL_ID \
+  --assignee-object-id $PRINCIPAL_ID \
+  --assignee-principal-type ServicePrincipal \
   --role "Reader" \
   --resource-group rg-<namePrefix>
 
 # リソースグループに監視閲覧者ロールを割り当て
 az role assignment create \
-  --assignee $PRINCIPAL_ID \
+  --assignee-object-id $PRINCIPAL_ID \
+  --assignee-principal-type ServicePrincipal \
   --role "Monitoring Reader" \
   --resource-group rg-<namePrefix>
 
 # サブスクリプションにCost Management 閲覧者ロールを割り当て
 az role assignment create \
-  --assignee $PRINCIPAL_ID \
+  --assignee-object-id $PRINCIPAL_ID \
+  --assignee-principal-type ServicePrincipal \
   --role "Cost Management Reader" \
   --scope /subscriptions/<subscription-id>
-
-# Cosmos DB vCoreメトリクス用に監視閲覧者を割り当て
-az role assignment create \
-  --assignee $PRINCIPAL_ID \
-  --role "Monitoring Reader" \
-  --scope /subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>/providers/Microsoft.DocumentDB/mongoClusters/<cosmos-account-name>
 ```
 
-> **注意**: ロールの割り当ては**永続的**で、デプロイをまたいで保持されます。ワークフローは既存の割り当てを確認し、重複を回避します。
+> **注意**: ロールの割り当ては**永続的**で、デプロイをまたいで保持されます。ワークフローは既存の割り当てを確認し、重複を回避します。リソースグループスコープの監視閲覧者ロールは、自動的にCosmos DBメトリクスへのアクセスを提供します。
 
 ### 検証
 
 ロール割り当て後、Container Appは以下にアクセスできるようになります：
 - Container AppsのAzure Monitorメトリクス（Requests、TxBytes、CPU、Memory）
-- Cosmos DB vCoreメトリクス（StorageUsed、CpuPercent、MemoryPercent）
+- Cosmos DB for MongoDB vCoreのAzure Monitorメトリクス（StorageUsed、CpuPercent、MemoryPercent）
 - 使用状況追跡のためのAzure Cost Managementデータ
 
 使用状況バナーとCosmos DB監視は、ロール割り当て後数分以内に動作を開始します。

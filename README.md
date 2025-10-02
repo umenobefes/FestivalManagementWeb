@@ -157,9 +157,10 @@ The deployment workflow **automatically assigns** the required Azure roles to en
 The workflow assigns the following roles to the Container App's Managed Identity:
 
 1. **Reader** (Resource Group scope) - Access to resource metadata and Cosmos DB information
-2. **Monitoring Reader** (Resource Group scope) - Access to Azure Monitor metrics (CPU, memory, requests, data transfer)
+2. **Monitoring Reader** (Resource Group scope) - Access to Azure Monitor metrics for all resources (Container Apps CPU, memory, requests, data transfer, and Cosmos DB vCore metrics)
 3. **Cost Management Reader** (Subscription scope) - Access to Azure Cost Management data (vCPU-seconds, GiB-seconds)
-4. **Monitoring Reader** (Cosmos DB scope) - Access to Cosmos DB vCore metrics (StorageUsed, CPU, Memory)
+
+> **Note:** The Monitoring Reader role at resource group scope provides access to metrics from all resources in the group, including Cosmos DB for MongoDB vCore. No additional role assignment is needed for Cosmos DB.
 
 ### Manual Assignment (If Needed)
 
@@ -193,6 +194,8 @@ If the automatic assignment fails or you're deploying manually, you can assign r
    - Role: **Cost Management Reader**
    - Click **Save**
 
+   > **Note:** The Monitoring Reader role at resource group scope provides access to metrics from all resources, including Cosmos DB. No additional role assignment is needed.
+
 #### Method 2: Azure CLI
 
 ```bash
@@ -206,36 +209,33 @@ echo "Principal ID: $PRINCIPAL_ID"
 
 # Assign Reader role to the resource group
 az role assignment create \
-  --assignee $PRINCIPAL_ID \
+  --assignee-object-id $PRINCIPAL_ID \
+  --assignee-principal-type ServicePrincipal \
   --role "Reader" \
   --resource-group rg-<namePrefix>
 
 # Assign Monitoring Reader role to the resource group
 az role assignment create \
-  --assignee $PRINCIPAL_ID \
+  --assignee-object-id $PRINCIPAL_ID \
+  --assignee-principal-type ServicePrincipal \
   --role "Monitoring Reader" \
   --resource-group rg-<namePrefix>
 
 # Assign Cost Management Reader role to the subscription
 az role assignment create \
-  --assignee $PRINCIPAL_ID \
+  --assignee-object-id $PRINCIPAL_ID \
+  --assignee-principal-type ServicePrincipal \
   --role "Cost Management Reader" \
   --scope /subscriptions/<subscription-id>
-
-# Assign Monitoring Reader to Cosmos DB for vCore metrics
-az role assignment create \
-  --assignee $PRINCIPAL_ID \
-  --role "Monitoring Reader" \
-  --scope /subscriptions/<subscription-id>/resourceGroups/rg-<namePrefix>/providers/Microsoft.DocumentDB/mongoClusters/<cosmos-account-name>
 ```
 
-> **Note**: Role assignments are **permanent** and persist across deployments. The workflow checks for existing assignments to avoid duplicates.
+> **Note**: Role assignments are **permanent** and persist across deployments. The workflow checks for existing assignments to avoid duplicates. The Monitoring Reader role at resource group scope automatically provides access to Cosmos DB metrics.
 
 ### Verification
 
 After assigning roles, the Container App can access:
 - Azure Monitor metrics for Container Apps (Requests, TxBytes, CPU, Memory)
-- Cosmos DB vCore metrics (StorageUsed, CpuPercent, MemoryPercent)
+- Azure Monitor metrics for Cosmos DB for MongoDB vCore (StorageUsed, CpuPercent, MemoryPercent)
 - Azure Cost Management data for usage tracking
 
 The usage banner and Cosmos DB monitoring will start working within a few minutes after role assignment.
