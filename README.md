@@ -28,6 +28,56 @@ FestivalManagementWeb is an ASP.NET Core 8.0 application for managing festival c
 - MongoDB Shell tools for inspecting Cosmos DB (Mongo API) collections
 - Optional: Node.js 20+ if you customize static assets under `wwwroot`
 
+## Azure CLI Setup
+
+The Azure CLI is required for deploying and managing resources. Install version 2.64 or later.
+
+### Windows
+
+```powershell
+winget install Microsoft.AzureCLI
+```
+
+After installation, restart your terminal and verify:
+```bash
+az version
+```
+
+### macOS
+
+```bash
+brew update && brew install azure-cli
+```
+
+### Linux
+
+**Ubuntu/Debian:**
+```bash
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+```
+
+**RHEL/CentOS/Fedora:**
+```bash
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+sudo dnf install -y azure-cli
+```
+
+**Arch Linux:**
+```bash
+yay -S azure-cli
+```
+
+### Azure Cloud Shell (Browser-based alternative)
+
+If you prefer not to install locally, use [Azure Cloud Shell](https://shell.azure.com) which comes with Azure CLI pre-installed. Access it directly from your browser with your Azure account.
+
+### Verify Installation
+
+```bash
+az version
+az login
+```
+
 ## Deployment Essentials
 
 ### Required GitHub Secrets

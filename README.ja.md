@@ -28,6 +28,56 @@ FestivalManagementWebは、フェスティバルコンテンツを管理する�
 - MongoDB Shell ツール (Cosmos DB（Mongo API）コレクションの検査用)
 - オプション: Node.js 20+ (`wwwroot`配下の静的アセットをカスタマイズする場合)
 
+## Azure CLI セットアップ
+
+Azure CLI はリソースのデプロイと管理に必要です。バージョン 2.64 以降をインストールしてください。
+
+### Windows
+
+```powershell
+winget install Microsoft.AzureCLI
+```
+
+インストール後、ターミナルを再起動して確認：
+```bash
+az version
+```
+
+### macOS
+
+```bash
+brew update && brew install azure-cli
+```
+
+### Linux
+
+**Ubuntu/Debian:**
+```bash
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+```
+
+**RHEL/CentOS/Fedora:**
+```bash
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+sudo dnf install -y azure-cli
+```
+
+**Arch Linux:**
+```bash
+yay -S azure-cli
+```
+
+### Azure Cloud Shell（ブラウザベースの代替手段）
+
+ローカルインストールを避けたい場合は、[Azure Cloud Shell](https://shell.azure.com) を使用してください。Azure CLI がプリインストールされており、Azure アカウントでブラウザから直接アクセスできます。
+
+### インストールの確認
+
+```bash
+az version
+az login
+```
+
 ## デプロイメント必須項目
 
 ### 必要なGitHub Secrets
