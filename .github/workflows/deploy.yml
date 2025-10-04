@@ -56,6 +56,62 @@ jobs:
         SUBSCRIPTION_ID=$(echo "$AZURE_CREDS" | jq -r '.subscriptionId')
         echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
 
+    - name: Check GitHub Actions service principal permissions
+      run: |
+        echo "🔍 Checking GitHub Actions service principal permissions..."
+
+        CURRENT_USER=$(az account show --query user.name -o tsv)
+        echo "   Current user: $CURRENT_USER"
+
+        # Check role assignments
+        echo ""
+        echo "Checking role assignments on subscription..."
+        ROLE_ASSIGNMENTS=$(az role assignment list --assignee "$CURRENT_USER" --scope "/subscriptions/$SUBSCRIPTION_ID" --query "[].{Role:roleDefinitionName}" -o json)
+
+        echo "Assigned roles:"
+        echo "$ROLE_ASSIGNMENTS" | jq -r '.[] | "   - \(.Role)"'
+
+        # Check for required permissions
+        HAS_CONTRIBUTOR=false
+        HAS_USER_ACCESS_ADMIN=false
+        HAS_OWNER=false
+
+        if echo "$ROLE_ASSIGNMENTS" | jq -e '.[] | select(.Role == "Contributor")' > /dev/null 2>&1; then
+          HAS_CONTRIBUTOR=true
+        fi
+
+        if echo "$ROLE_ASSIGNMENTS" | jq -e '.[] | select(.Role == "User Access Administrator")' > /dev/null 2>&1; then
+          HAS_USER_ACCESS_ADMIN=true
+        fi
+
+        if echo "$ROLE_ASSIGNMENTS" | jq -e '.[] | select(.Role == "Owner")' > /dev/null 2>&1; then
+          HAS_OWNER=true
+        fi
+
+        echo ""
+        echo "📋 Permission check results:"
+
+        if [ "$HAS_OWNER" = true ]; then
+          echo "   ✅ Owner role detected - all operations supported"
+        elif [ "$HAS_CONTRIBUTOR" = true ] && [ "$HAS_USER_ACCESS_ADMIN" = true ]; then
+          echo "   ✅ Contributor + User Access Administrator - all operations supported"
+        elif [ "$HAS_CONTRIBUTOR" = true ]; then
+          echo "   ⚠️  Contributor role only - can create resources but cannot assign roles"
+          echo "   ⚠️  FreeTier monitoring may not work without manual role assignment"
+          echo ""
+          echo "   To enable FreeTier monitoring, either:"
+          echo "   1. Add 'User Access Administrator' role to the service principal, OR"
+          echo "   2. Manually assign roles in Azure Portal after deployment:"
+          echo "      - Monitoring Reader on Resource Group"
+          echo "      - Cost Management Reader on Subscription"
+        else
+          echo "   ❌ Insufficient permissions detected"
+          echo "   Required: Contributor + User Access Administrator (or Owner)"
+        fi
+
+        echo ""
+        echo "Note: Deployment will continue, but some features may require manual configuration."
+
     - name: Extract parameters for resource group creation
       id: extract-params
       env:
@@ -103,7 +159,6 @@ jobs:
         fi
 
         IMAGE_NAME="${NAME_PREFIX}-app"
-
         echo "name-prefix=$NAME_PREFIX" >> $GITHUB_OUTPUT
         echo "location=$LOCATION" >> $GITHUB_OUTPUT
         echo "resource-group=rg-${NAME_PREFIX}" >> $GITHUB_OUTPUT
@@ -211,43 +266,113 @@ jobs:
         docker push $TARGET_IMAGE:${{ github.sha }}
         docker push $TARGET_IMAGE:latest
 
-    - name: Make package public (if GH_PAT configured)
+    - name: Verify package visibility and make public
       run: |
-        if [ -z "${{ secrets.GH_PAT }}" ]; then
-          echo "⚠️  GH_PAT secret not configured - skipping package visibility update"
-          exit 0
-        fi
-
         REPO_FULL="${{ steps.extract-params.outputs.container-registry-repository }}"
         OWNER=$(echo "$REPO_FULL" | cut -d'/' -f1)
         PACKAGE_NAME=$(echo "$REPO_FULL" | cut -d'/' -f2)
 
-        echo "Setting package visibility to public..."
+        echo "Checking package visibility for $OWNER/$PACKAGE_NAME..."
 
-        # Try organization first, then user
-        if curl -s -X PATCH \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+        # Check current visibility
+        VISIBILITY=""
+
+        # Try organization package first
+        ORG_RESPONSE=$(curl -s -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          "https://api.github.com/orgs/$OWNER/packages/container/$PACKAGE_NAME" \
-          -d '{"visibility":"public"}' | grep -q '"visibility":"public"'; then
-          echo "✅ Package set to public (organization)"
-        elif curl -s -X PATCH \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
-          -H "X-GitHub-Api-Version: 2022-11-28" \
-          "https://api.github.com/users/$OWNER/packages/container/$PACKAGE_NAME" \
-          -d '{"visibility":"public"}' | grep -q '"visibility":"public"'; then
-          echo "✅ Package set to public (user)"
+          "https://api.github.com/orgs/$OWNER/packages/container/$PACKAGE_NAME" 2>/dev/null || echo "")
+
+        if echo "$ORG_RESPONSE" | jq -e '.visibility' > /dev/null 2>&1; then
+          VISIBILITY=$(echo "$ORG_RESPONSE" | jq -r '.visibility')
+          echo "Package type: Organization"
         else
-          echo "⚠️  Could not set package visibility automatically"
+          # Try user package
+          USER_RESPONSE=$(curl -s -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/users/$OWNER/packages/container/$PACKAGE_NAME" 2>/dev/null || echo "")
+
+          if echo "$USER_RESPONSE" | jq -e '.visibility' > /dev/null 2>&1; then
+            VISIBILITY=$(echo "$USER_RESPONSE" | jq -r '.visibility')
+            echo "Package type: User"
+          fi
         fi
 
-    - name: Deploy infrastructure (Cosmos DB + Environment)
+        echo "Current visibility: $VISIBILITY"
+
+        # If already public, we're done
+        if [ "$VISIBILITY" = "public" ]; then
+          echo "✅ Package is already public - deployment can proceed"
+          exit 0
+        fi
+
+        # If private and no GH_PAT, abort
+        if [ "$VISIBILITY" = "private" ] && [ -z "${{ secrets.GH_PAT }}" ]; then
+          echo ""
+          echo "❌ ERROR: Package is PRIVATE but cannot be made public"
+          echo ""
+          echo "Container Apps cannot pull private packages from GHCR."
+          echo "You must either:"
+          echo ""
+          echo "1. Create a GitHub Personal Access Token with 'write:packages' scope:"
+          echo "   https://github.com/settings/tokens/new?scopes=write:packages,read:packages"
+          echo ""
+          echo "2. Add it as a repository secret named 'GH_PAT':"
+          echo "   gh secret set GH_PAT"
+          echo ""
+          echo "3. Re-run this workflow"
+          echo ""
+          echo "The workflow will then automatically make the package public."
+          exit 1
+        fi
+
+        # Try to make it public
+        if [ -n "${{ secrets.GH_PAT }}" ]; then
+          echo "Attempting to make package public using GH_PAT..."
+
+          # Try organization first
+          if curl -s -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$OWNER/packages/container/$PACKAGE_NAME" \
+            -d '{"visibility":"public"}' 2>&1 | grep -q '"visibility":"public"'; then
+            echo "✅ Package set to public (organization)"
+            exit 0
+          fi
+
+          # Try user package
+          if curl -s -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/users/$OWNER/packages/container/$PACKAGE_NAME" \
+            -d '{"visibility":"public"}' 2>&1 | grep -q '"visibility":"public"'; then
+            echo "✅ Package set to public (user)"
+            exit 0
+          fi
+
+          echo "❌ Failed to make package public even with GH_PAT"
+          echo "Please manually set the package to public in GitHub:"
+          echo "https://github.com/$OWNER?tab=packages"
+          exit 1
+        fi
+
+        # Unknown visibility
+        echo "⚠️  Could not determine package visibility"
+        echo "Proceeding with deployment - if the package is private, deployment will fail"
+
+    - name: Deploy infrastructure only (Cosmos DB + Environment)
       id: deploy-infrastructure
+      env:
+        NAME_PREFIX: ${{ steps.extract-params.outputs.name-prefix }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+        LOCATION: ${{ steps.extract-params.outputs.location }}
+        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
       run: |
-        RESOURCE_GROUP="${{ steps.extract-params.outputs.resource-group }}"
-        NAME_PREFIX="${{ steps.extract-params.outputs.name-prefix }}"
+        set -euo pipefail
+
         ENV_NAME="${NAME_PREFIX}-env"
         COSMOS_NAME="${NAME_PREFIX}-cosmos"
 
@@ -256,60 +381,61 @@ jobs:
         COSMOS_EXISTS=false
 
         if az containerapp env show --name "$ENV_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-          echo "Container Apps Environment already exists: $ENV_NAME"
+          echo "✅ Container Apps Environment already exists: $ENV_NAME"
           ENV_EXISTS=true
         fi
 
         if az cosmosdb mongocluster show --cluster-name "$COSMOS_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null 2>&1; then
-          echo "Cosmos DB already exists: $COSMOS_NAME"
+          echo "✅ Cosmos DB already exists: $COSMOS_NAME"
           COSMOS_EXISTS=true
         fi
 
-        # Determine which resources need to be created
+        # Determine what to create
         CREATE_NEW_ENVIRONMENT=false
         CREATE_NEW_COSMOS=false
 
         if [ "$ENV_EXISTS" = false ]; then
           CREATE_NEW_ENVIRONMENT=true
           echo "Will create new Container Apps Environment"
-        else
-          echo "Will reference existing Container Apps Environment"
         fi
 
         if [ "$COSMOS_EXISTS" = false ]; then
           CREATE_NEW_COSMOS=true
           echo "Will create new Cosmos DB"
-        else
-          echo "Will reference existing Cosmos DB"
         fi
 
-        # Always run deployment to ensure outputs are available
+        # Deploy infrastructure
+        echo "Deploying infrastructure..."
         az deployment group create \
           --name "infra-${{ github.run_number }}-${{ github.run_attempt }}" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/infrastructure.bicep \
           --parameters namePrefix="$NAME_PREFIX" \
-          --parameters location="${{ steps.extract-params.outputs.location }}" \
-          --parameters mongoAdminPassword="${{ steps.extract-secrets.outputs.mongo-admin-password }}" \
+          --parameters location="$LOCATION" \
+          --parameters mongoAdminPassword="$MONGO_ADMIN_PASSWORD" \
           --parameters createNewEnvironment=$CREATE_NEW_ENVIRONMENT \
           --parameters createNewCosmosDb=$CREATE_NEW_COSMOS \
           --output json > infra-output.json
 
         ENV_ID=$(jq -r '.properties.outputs.environmentId.value' infra-output.json)
-        COSMOS_NAME=$(jq -r '.properties.outputs.cosmosDbAccountName.value' infra-output.json)
 
         echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
         echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
+        echo "✅ Infrastructure deployment completed"
 
-    - name: Validate Container App template
+    - name: Deploy Container App
+      id: deploy-app
       env:
-        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
+        NAME_PREFIX: ${{ steps.extract-params.outputs.name-prefix }}
         RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
         LOCATION: ${{ steps.extract-params.outputs.location }}
-        CONTAINER_REGISTRY_SERVER: ${{ steps.extract-params.outputs.container-registry-server }}
-        CONTAINER_REGISTRY_REPOSITORY: ${{ steps.extract-params.outputs.container-registry-repository }}
         ENVIRONMENT_ID: ${{ steps.deploy-infrastructure.outputs.environmentId }}
         COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
+        CONTAINER_REGISTRY_SERVER: ${{ steps.extract-params.outputs.container-registry-server }}
+        CONTAINER_REGISTRY_REPOSITORY: ${{ steps.extract-params.outputs.container-registry-repository }}
+        REGISTRY_USERNAME: ${{ github.actor }}
+        REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
         GOOGLE_CLIENT_ID: ${{ steps.extract-secrets.outputs.google-client-id }}
         GOOGLE_CLIENT_SECRET: ${{ steps.extract-secrets.outputs.google-client-secret }}
         INITIAL_USER_EMAIL: ${{ steps.extract-secrets.outputs.initial-user-email }}
@@ -317,248 +443,91 @@ jobs:
         GIT_AUTHOR_EMAIL: ${{ steps.extract-secrets.outputs.git-author-email }}
         GIT_TOKEN: ${{ steps.extract-secrets.outputs.git-token }}
         GIT_CLONE_URL: ${{ steps.extract-secrets.outputs.git-clone-url }}
-        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
-      run: |
-        set -eo pipefail
-
-        DEPLOYMENT_NAME="app-${{ github.run_number }}-${{ github.run_attempt }}"
-        ENCODED_PASSWORD=$(printf %s "$MONGO_ADMIN_PASSWORD" | jq -sRr @uri)
-        MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
-
-        VALIDATE_LOG=$(mktemp)
-        if ! az deployment group validate \
-          --name "$DEPLOYMENT_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --template-file infra/application.bicep \
-          --parameters \
-            containerAppName="$APP_NAME" \
-            location="$LOCATION" \
-            environmentId="$ENVIRONMENT_ID" \
-            imageTag="latest" \
-            containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
-            containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-          > "$VALIDATE_LOG" 2>&1; then
-          if grep -qi "The content for this response was already consumed" "$VALIDATE_LOG"; then
-            echo "::warning::Azure CLI validation returned a known bug (response already consumed). Proceeding to deployment; see deployment step for concrete errors."
-          else
-            echo "::group::Container App validation failure"
-            cat "$VALIDATE_LOG"
-            echo "::endgroup::"
-            rm -f "$VALIDATE_LOG"
-            exit 1
-          fi
-        fi
-        rm -f "$VALIDATE_LOG"
-
-    - name: Deploy Container App configuration
-      id: deploy-application
-      env:
-        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
-        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
-        LOCATION: ${{ steps.extract-params.outputs.location }}
-        CONTAINER_REGISTRY_SERVER: ${{ steps.extract-params.outputs.container-registry-server }}
-        CONTAINER_REGISTRY_REPOSITORY: ${{ steps.extract-params.outputs.container-registry-repository }}
-        ENVIRONMENT_ID: ${{ steps.deploy-infrastructure.outputs.environmentId }}
-        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
-        GOOGLE_CLIENT_ID: ${{ steps.extract-secrets.outputs.google-client-id }}
-        GOOGLE_CLIENT_SECRET: ${{ steps.extract-secrets.outputs.google-client-secret }}
-        INITIAL_USER_EMAIL: ${{ steps.extract-secrets.outputs.initial-user-email }}
-        GIT_AUTHOR_NAME: ${{ steps.extract-secrets.outputs.git-author-name }}
-        GIT_AUTHOR_EMAIL: ${{ steps.extract-secrets.outputs.git-author-email }}
-        GIT_TOKEN: ${{ steps.extract-secrets.outputs.git-token }}
-        GIT_CLONE_URL: ${{ steps.extract-secrets.outputs.git-clone-url }}
-        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
       run: |
         set -euo pipefail
 
-        DEPLOYMENT_NAME="app-${{ github.run_number }}-${{ github.run_attempt }}"
+        APP_NAME="${NAME_PREFIX}-app"
         IMAGE_TAG="latest"
-        ENCODED_PASSWORD=$(printf %s "$MONGO_ADMIN_PASSWORD" | jq -sRr @uri)
-        MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
         IMAGE_REF="${CONTAINER_REGISTRY_SERVER}/${CONTAINER_REGISTRY_REPOSITORY}:${IMAGE_TAG}"
+        REGISTRY_USERNAME_LOWER=$(echo "$REGISTRY_USERNAME" | tr '[:upper:]' '[:lower:]')
 
+        # Check if app exists
         APP_EXISTS=false
         if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
           APP_EXISTS=true
+          echo "Container App already exists, will update it"
         fi
 
-        if [ "$APP_EXISTS" = false ]; then
-          DEPLOY_LOG=$(mktemp)
-          if ! az deployment group create \
-            --name "$DEPLOYMENT_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file infra/application.bicep \
-            --parameters \
-              containerAppName="$APP_NAME" \
-              location="$LOCATION" \
-              environmentId="$ENVIRONMENT_ID" \
-              imageTag="$IMAGE_TAG" \
-              containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
-              containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-            > "$DEPLOY_LOG" 2>&1; then
-            echo "::group::Container App deployment failure (initial attempt)"
-            cat "$DEPLOY_LOG"
-            echo "::endgroup::"
-
-            if grep -qi "The content for this response was already consumed" "$DEPLOY_LOG"; then
-              echo "::warning::Azure CLI returned 'response already consumed' during deployment. Retrying with a fresh deployment name..."
-              RETRY_DEPLOYMENT_NAME="${DEPLOYMENT_NAME}-retry"
-              RETRY_LOG=$(mktemp)
-              if ! az deployment group create \
-                --name "$RETRY_DEPLOYMENT_NAME" \
-                --resource-group "$RESOURCE_GROUP" \
-                --template-file infra/application.bicep \
-                --parameters \
-                  containerAppName="$APP_NAME" \
-                  location="$LOCATION" \
-                  environmentId="$ENVIRONMENT_ID" \
-                  imageTag="$IMAGE_TAG" \
-                  containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
-                  containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-                > "$RETRY_LOG" 2>&1; then
-                echo "::group::Container App deployment failure (retry)"
-                cat "$RETRY_LOG"
-                echo "::endgroup::"
-                if az deployment group show --name "$RETRY_DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-                  az deployment operation group list \
-                    --resource-group "$RESOURCE_GROUP" \
-                    --name "$RETRY_DEPLOYMENT_NAME" \
-                    -o json || true
-                else
-                  echo "ℹ️  Retry deployment record not found; skipping operation diagnostics"
-                fi
-                rm -f "$RETRY_LOG"
-                rm -f "$DEPLOY_LOG"
-                exit 1
-              fi
-              echo "✅ Container App deployment succeeded on retry"
-              rm -f "$RETRY_LOG"
-            else
-              if az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-                az deployment operation group list \
-                  --resource-group "$RESOURCE_GROUP" \
-                  --name "$DEPLOYMENT_NAME" \
-                  -o json || true
-              else
-                echo "ℹ️  Deployment record '$DEPLOYMENT_NAME' was not created; ARM request likely rejected."
-              fi
-              rm -f "$DEPLOY_LOG"
-              exit 1
-            fi
-          fi
-          rm -f "$DEPLOY_LOG"
-        else
-          UPDATE_LOG=$(mktemp)
-          if ! az containerapp update \
-            --name "$APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --image "$IMAGE_REF" \
-            > "$UPDATE_LOG" 2>&1; then
-            echo "::group::Container App image update failure"
-            cat "$UPDATE_LOG"
-            echo "::endgroup::"
-            rm -f "$UPDATE_LOG"
-            exit 1
-          fi
-          rm -f "$UPDATE_LOG"
-        fi
-
-        # Ensure Managed Identity is enabled (for both new and existing apps)
-        echo "Ensuring system-assigned managed identity is enabled..."
-        IDENTITY_LOG=$(mktemp)
-        if az containerapp identity assign \
-          --name "$APP_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --system-assigned \
-          > "$IDENTITY_LOG" 2>&1; then
-          echo "✅ Managed identity enabled successfully"
-        else
-          if grep -qi "already exists\|already assigned" "$IDENTITY_LOG"; then
-            echo "ℹ️  Managed identity already enabled"
-          else
-            echo "::warning::Failed to enable managed identity"
-            cat "$IDENTITY_LOG"
-          fi
-        fi
-        rm -f "$IDENTITY_LOG"
-
-        APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
-        PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
-
-        echo "containerAppUrl=https://$APP_URL" >> "$GITHUB_OUTPUT"
-        echo "containerAppPrincipalId=$PRINCIPAL_ID" >> "$GITHUB_OUTPUT"
-
-        if [ -z "$PRINCIPAL_ID" ] || [ "$PRINCIPAL_ID" = "null" ]; then
-          echo "⚠️  WARNING: Managed Identity Principal ID not found"
-          echo "Please verify Managed Identity is enabled in Azure Portal"
-        else
-          echo "✅ Managed Identity Principal ID: $PRINCIPAL_ID"
-        fi
-
-    - name: Set Container App secrets
-      env:
-        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
-        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
-        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
-        GOOGLE_CLIENT_ID: ${{ steps.extract-secrets.outputs.google-client-id }}
-        GOOGLE_CLIENT_SECRET: ${{ steps.extract-secrets.outputs.google-client-secret }}
-        INITIAL_USER_EMAIL: ${{ steps.extract-secrets.outputs.initial-user-email }}
-        GIT_TOKEN: ${{ steps.extract-secrets.outputs.git-token }}
-        GIT_CLONE_URL: ${{ steps.extract-secrets.outputs.git-clone-url }}
-        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
-      run: |
-        set -eo pipefail
-
+        # Prepare MongoDB connection string
         ENCODED_PASSWORD=$(printf %s "$MONGO_ADMIN_PASSWORD" | jq -sRr @uri)
         MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
-        SECRET_LOG=$(mktemp)
-        if ! az containerapp secret set \
-          --name "$APP_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --secrets \
-            mongo-connection-string="$MONGO_CONN" \
-            google-client-id="$GOOGLE_CLIENT_ID" \
-            google-client-secret="$GOOGLE_CLIENT_SECRET" \
-            initial-user-email="$INITIAL_USER_EMAIL" \
-            git-token="$GIT_TOKEN" \
-            git-clone-url="$GIT_CLONE_URL" \
-          > "$SECRET_LOG" 2>&1; then
-          echo "::group::Container App secret update failure"
-          cat "$SECRET_LOG"
-          echo "::endgroup::"
-          rm -f "$SECRET_LOG"
-          exit 1
+        if [ "$APP_EXISTS" = false ]; then
+          echo "Creating Container App with az containerapp create..."
+          echo "Using public package (no registry authentication needed)..."
+          az containerapp create \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --environment "$ENVIRONMENT_ID" \
+            --image "$IMAGE_REF" \
+            --target-port 8080 \
+            --ingress external \
+            --cpu 0.5 \
+            --memory 1.0Gi \
+            --min-replicas 0 \
+            --max-replicas 1 \
+            --system-assigned \
+            --secrets \
+              mongo-connection-string="$MONGO_CONN" \
+              google-client-id="$GOOGLE_CLIENT_ID" \
+              google-client-secret="$GOOGLE_CLIENT_SECRET" \
+              initial-user-email="$INITIAL_USER_EMAIL" \
+              git-token="$GIT_TOKEN" \
+              git-clone-url="$GIT_CLONE_URL" \
+            --env-vars \
+              ASPNETCORE_ENVIRONMENT=Production \
+              MongoDbSettings__ConnectionString=secretref:mongo-connection-string \
+              MongoDbSettings__DatabaseName=FestivalManagement \
+              Authentication__Google__ClientId=secretref:google-client-id \
+              Authentication__Google__ClientSecret=secretref:google-client-secret \
+              InitialUser__Email=secretref:initial-user-email \
+              GitSettings__RemoteName=origin \
+              GitSettings__AuthorName="$GIT_AUTHOR_NAME" \
+              GitSettings__AuthorEmail="$GIT_AUTHOR_EMAIL" \
+              GitSettings__Token=secretref:git-token \
+              GitSettings__CloneUrl=secretref:git-clone-url
+        else
+          echo "Updating existing Container App..."
+
+          # Remove registry authentication for public packages
+          echo "Removing registry credentials (public package doesn't need authentication)..."
+          az containerapp registry remove \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --server "$CONTAINER_REGISTRY_SERVER" || echo "No registry to remove or already removed"
+
+          # Update the image and resources
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE_REF" \
+            --cpu 0.5 \
+            --memory 1.0Gi
         fi
-        rm -f "$SECRET_LOG"
 
-    - name: Configure Container App environment
-      env:
-        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
-        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
-        SUBSCRIPTION_ID: ${{ env.SUBSCRIPTION_ID }}
-        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
-        GIT_AUTHOR_NAME: ${{ steps.extract-secrets.outputs.git-author-name }}
-        GIT_AUTHOR_EMAIL: ${{ steps.extract-secrets.outputs.git-author-email }}
-      run: |
-        set -eo pipefail
+        # Add FreeTier and AzureUsage environment variables
+        echo "Adding FreeTier configuration..."
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 
-        ENV_LOG=$(mktemp)
-        if ! az containerapp update \
+        az containerapp update \
           --name "$APP_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --set-env-vars \
-            ASPNETCORE_ENVIRONMENT=Production \
-            MongoDbSettings__ConnectionString=secretref:mongo-connection-string \
-            MongoDbSettings__DatabaseName=FestivalManagement \
-            Authentication__Google__ClientId=secretref:google-client-id \
-            Authentication__Google__ClientSecret=secretref:google-client-secret \
-            InitialUser__Email=secretref:initial-user-email \
             FreeTier__EnableBanner=true \
             FreeTier__BudgetVcpuSeconds=180000 \
             FreeTier__BudgetGiBSeconds=360000 \
-            FreeTier__Resource__VcpuPerReplica=0.25 \
-            FreeTier__Resource__MemoryGiBPerReplica=0.5 \
+            FreeTier__Resource__VcpuPerReplica=0.5 \
+            FreeTier__Resource__MemoryGiBPerReplica=1.0 \
             FreeTier__Resource__ReplicaFactor=1 \
             FreeTier__EnforceRequestDailyCap=false \
             FreeTier__Data__BudgetGb=100 \
@@ -582,78 +551,221 @@ jobs:
             AzureUsage__ResourceGroup=$RESOURCE_GROUP \
             AzureUsage__SubscriptionId=$SUBSCRIPTION_ID \
             AzureUsage__MetricsRefreshMinutes=10 \
-            AzureUsage__CostRefreshMinutes=360 \
-            GitSettings__RemoteName=origin \
-            GitSettings__AuthorName="$GIT_AUTHOR_NAME" \
-            GitSettings__AuthorEmail="$GIT_AUTHOR_EMAIL" \
-            GitSettings__Token=secretref:git-token \
-            GitSettings__CloneUrl=secretref:git-clone-url \
-          > "$ENV_LOG" 2>&1; then
-          echo "::group::Container App env update failure"
-          cat "$ENV_LOG"
-          echo "::endgroup::"
-          rm -f "$ENV_LOG"
-          exit 1
-        fi
-        rm -f "$ENV_LOG"
+            AzureUsage__CostRefreshMinutes=360
 
-    - name: Assign Azure roles to Managed Identity (Fallback)
-      if: steps.deploy-application.outputs.containerAppPrincipalId != '' && steps.deploy-application.outputs.containerAppPrincipalId != 'null'
-      continue-on-error: true
+        # Get outputs
+        APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
+        PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
+
+        echo "containerAppUrl=https://$APP_URL" >> $GITHUB_OUTPUT
+        echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
+        echo "containerAppName=$APP_NAME" >> $GITHUB_OUTPUT
+
+        echo "✅ Container App deployment completed"
+        echo "   Application URL: https://$APP_URL"
+
+    - name: Configure scale settings (300 second cooldown)
       env:
-        PRINCIPAL_ID: ${{ steps.deploy-application.outputs.containerAppPrincipalId }}
+        APP_NAME: ${{ steps.deploy-app.outputs.containerAppName }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+      run: |
+        echo "Attempting to configure scale-to-zero with 300 second cooldown..."
+
+        # Try to update scale rule with cooldown period
+        SCALE_LOG=$(mktemp)
+
+        # Method 1: Try updating with --scale-rule-metadata
+        echo "Method 1: Updating scale rule metadata..."
+        if az containerapp update \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --scale-rule-name http-rule \
+          --scale-rule-type http \
+          --scale-rule-http-concurrency 30 \
+          --scale-rule-metadata cooldownPeriod=300 pollingInterval=30 \
+          --min-replicas 0 \
+          --max-replicas 1 \
+          > "$SCALE_LOG" 2>&1; then
+          echo "✅ Scale rule updated with cooldown metadata"
+          cat "$SCALE_LOG"
+        else
+          echo "⚠️  Method 1 failed, trying alternative..."
+          cat "$SCALE_LOG"
+
+          # Method 2: Try az rest API directly
+          echo "Method 2: Using Azure REST API..."
+          APP_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+
+          if az rest \
+            --method patch \
+            --uri "${APP_ID}?api-version=2024-03-01" \
+            --body '{
+              "properties": {
+                "template": {
+                  "scale": {
+                    "minReplicas": 0,
+                    "maxReplicas": 1,
+                    "rules": [
+                      {
+                        "name": "http-rule",
+                        "http": {
+                          "metadata": {
+                            "concurrentRequests": "30"
+                          }
+                        }
+                      }
+                    ],
+                    "cooldownPeriod": 300,
+                    "pollingInterval": 30
+                  }
+                }
+              }
+            }' \
+            > "$SCALE_LOG" 2>&1; then
+            echo "✅ Scale settings updated via REST API"
+            cat "$SCALE_LOG"
+          else
+            echo "⚠️  Method 2 also failed"
+            cat "$SCALE_LOG"
+            echo "ℹ️  Falling back to default behavior (~2-5 minutes)"
+          fi
+        fi
+
+        rm -f "$SCALE_LOG"
+
+        # Show current scale configuration
+        echo ""
+        echo "Current scale configuration:"
+        az containerapp show \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --query "properties.template.scale" \
+          -o json || true
+
+    - name: Assign Azure roles to Container App Managed Identity
+      if: steps.deploy-app.outputs.containerAppPrincipalId != '' && steps.deploy-app.outputs.containerAppPrincipalId != 'null'
+      env:
+        PRINCIPAL_ID: ${{ steps.deploy-app.outputs.containerAppPrincipalId }}
         RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
         COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
       run: |
-        echo "🔐 Verifying Azure role assignments (Bicep may have already assigned these)..."
+        echo "🔐 Assigning Azure roles for FreeTier monitoring..."
+        echo "   Principal ID: $PRINCIPAL_ID"
 
-        # Assign Reader role to resource group
-        if az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type ServicePrincipal \
-          --role "Reader" \
-          --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-reader.log | grep -qi "already exists"; then
-          echo "ℹ️  Reader role already assigned to resource group"
-        elif grep -qi "Created role assignment" /tmp/role-reader.log; then
-          echo "✅ Assigned Reader role to resource group"
-        else
-          echo "⚠️  Could not assign Reader role (may require User Access Administrator permission)"
-          cat /tmp/role-reader.log
-        fi
+        # Get subscription ID
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 
-        # Assign Monitoring Reader role to resource group
-        if az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type ServicePrincipal \
-          --role "Monitoring Reader" \
-          --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-monitoring.log | grep -qi "already exists"; then
-          echo "ℹ️  Monitoring Reader role already assigned to resource group"
-        elif grep -qi "Created role assignment" /tmp/role-monitoring.log; then
-          echo "✅ Assigned Monitoring Reader role to resource group"
-        else
-          echo "⚠️  Could not assign Monitoring Reader role (may require User Access Administrator permission)"
-          cat /tmp/role-monitoring.log
-        fi
+        # Function to assign role with retry
+        assign_role_with_retry() {
+          local role_name="$1"
+          local scope_type="$2"
+          local scope_value="$3"
+          local max_attempts=3
 
-        # Assign Cost Management Reader role to subscription
-        if az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type ServicePrincipal \
-          --role "Cost Management Reader" \
-          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" 2>&1 | tee /tmp/role-cost.log | grep -qi "already exists"; then
-          echo "ℹ️  Cost Management Reader role already assigned to subscription"
-        elif grep -qi "Created role assignment" /tmp/role-cost.log; then
-          echo "✅ Assigned Cost Management Reader role to subscription"
+          for attempt in $(seq 1 $max_attempts); do
+            echo ""
+            echo "Assigning $role_name (attempt $attempt/$max_attempts)..."
+
+            ASSIGN_LOG=$(mktemp)
+            ASSIGN_RESULT=false
+
+            if [ "$scope_type" = "resource-group" ]; then
+              RG_SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$scope_value"
+              if az role assignment create \
+                --assignee-object-id "$PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$role_name" \
+                --scope "$RG_SCOPE" \
+                > "$ASSIGN_LOG" 2>&1; then
+                ASSIGN_RESULT=true
+              fi
+            elif [ "$scope_type" = "subscription" ]; then
+              if az role assignment create \
+                --assignee-object-id "$PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$role_name" \
+                --scope "/subscriptions/$scope_value" \
+                > "$ASSIGN_LOG" 2>&1; then
+                ASSIGN_RESULT=true
+              fi
+            elif [ "$scope_type" = "resource" ]; then
+              if az role assignment create \
+                --assignee-object-id "$PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$role_name" \
+                --scope "$scope_value" \
+                > "$ASSIGN_LOG" 2>&1; then
+                ASSIGN_RESULT=true
+              fi
+            fi
+
+            if [ "$ASSIGN_RESULT" = true ]; then
+              echo "✅ Successfully assigned $role_name"
+              rm -f "$ASSIGN_LOG"
+              return 0
+            elif grep -qi "already exists\|already assigned" "$ASSIGN_LOG"; then
+              echo "ℹ️  $role_name already assigned"
+              rm -f "$ASSIGN_LOG"
+              return 0
+            else
+              echo "⚠️  Attempt $attempt failed:"
+              cat "$ASSIGN_LOG"
+              rm -f "$ASSIGN_LOG"
+
+              if [ $attempt -lt $max_attempts ]; then
+                echo "Waiting 10 seconds before retry..."
+                sleep 10
+              fi
+            fi
+          done
+
+          echo "❌ Failed to assign $role_name after $max_attempts attempts"
+          return 1
+        }
+
+        # Wait for Managed Identity to propagate
+        echo "Waiting 30 seconds for Managed Identity to propagate in Azure AD..."
+        sleep 30
+
+        # 1. Reader role on Resource Group (for general resource access)
+        assign_role_with_retry "Reader" "resource-group" "$RESOURCE_GROUP" || {
+          echo "::warning::Failed to assign Reader role - monitoring features may not work"
+        }
+
+        # 2. Monitoring Reader role on Resource Group (for metrics access)
+        assign_role_with_retry "Monitoring Reader" "resource-group" "$RESOURCE_GROUP" || {
+          echo "::error::Failed to assign Monitoring Reader role - this is REQUIRED for FreeTier monitoring"
+          exit 1
+        }
+
+        # 3. Cost Management Reader role on Subscription (for cost data)
+        assign_role_with_retry "Cost Management Reader" "subscription" "$SUBSCRIPTION_ID" || {
+          echo "::warning::Failed to assign Cost Management Reader role - cost monitoring may not work"
+          echo "::warning::You may need to manually assign this role in Azure Portal"
+          echo "::warning::Required permission: User Access Administrator or Owner at subscription level"
+        }
+
+        # 4. Monitoring Reader on Cosmos DB (for Cosmos metrics)
+        COSMOS_ID=$(az cosmosdb mongocluster show --cluster-name "$COSMOS_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$COSMOS_ID" ] && [ "$COSMOS_ID" != "null" ]; then
+          assign_role_with_retry "Monitoring Reader" "resource" "$COSMOS_ID" || {
+            echo "::warning::Failed to assign Monitoring Reader role on Cosmos DB"
+          }
         else
-          echo "⚠️  Could not assign Cost Management Reader role (may require User Access Administrator permission)"
-          cat /tmp/role-cost.log
+          echo "⚠️  Could not find Cosmos DB resource ID, skipping Cosmos-specific role assignment"
         fi
 
         echo ""
-        echo "✅ Role assignment verification completed"
-        echo "   Monitoring Reader at resource group scope provides access to all resource metrics, including Cosmos DB."
-        echo "   If roles were already assigned by Bicep, the app is ready to use."
-        echo "   If warnings appeared, ensure the service principal has User Access Administrator permission."
+        echo "✅ Role assignment completed"
+        echo ""
+        echo "📊 Summary of permissions for FreeTier monitoring:"
+        echo "   ✓ Reader on Resource Group          → General resource access"
+        echo "   ✓ Monitoring Reader on RG           → Container Apps metrics (CPU, Memory, Requests)"
+        echo "   ✓ Cost Management Reader on Sub     → Cost data (if assigned)"
+        echo "   ✓ Monitoring Reader on Cosmos DB    → Database metrics (if assigned)"
+        echo ""
+        echo "If any warnings appeared above, the app may not be able to display all monitoring data."
+        echo "To fix: Grant 'User Access Administrator' role to the GitHub Actions service principal."
 
     - name: Cleanup secrets
       if: always()
@@ -661,4 +773,4 @@ jobs:
 
     - name: Output application URL
       run: |
-        echo "Application deployed to: ${{ steps.deploy-application.outputs.containerAppUrl }}"
+        echo "Application deployed to: ${{ steps.deploy-app.outputs.containerAppUrl }}"
