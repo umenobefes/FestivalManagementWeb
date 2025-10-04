@@ -412,6 +412,14 @@ jobs:
           local show_log ops_log
           show_log=$(mktemp)
           ops_log=$(mktemp)
+
+          # Check if deployment exists before trying to show diagnostics
+          if ! az deployment group show --name "$dep_name" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+            echo "::warning::Deployment '$dep_name' not found in resource group. Skipping diagnostics."
+            rm -f "$show_log" "$ops_log"
+            return 0
+          fi
+
           echo "::group::ARM deployment diagnostics (${dep_name})"
           if az deployment group show --name "$dep_name" --resource-group "$RESOURCE_GROUP" -o json > "$show_log" 2>&1; then
             cat "$show_log"
@@ -606,8 +614,8 @@ jobs:
             FreeTier__EnableBanner=true \
             FreeTier__BudgetVcpuSeconds=180000 \
             FreeTier__BudgetGiBSeconds=360000 \
-            FreeTier__Resource__VcpuPerReplica=0.25 \
-            FreeTier__Resource__MemoryGiBPerReplica=0.5 \
+            FreeTier__Resource__VcpuPerReplica=0.5 \
+            FreeTier__Resource__MemoryGiBPerReplica=1.0 \
             FreeTier__Resource__ReplicaFactor=1 \
             FreeTier__EnforceRequestDailyCap=false \
             FreeTier__Data__BudgetGb=100 \
