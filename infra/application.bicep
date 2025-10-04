@@ -62,10 +62,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'festivalManagementWeb'
           image: '${containerRegistryServer}/${containerRegistryRepository}:${imageTag}'
-          resources: {
-            cpu: '0.5'
-            memory: '1Gi'
-          }
         }
       ]
       scale: {

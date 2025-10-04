@@ -668,6 +668,28 @@ jobs:
         fi
         rm -f "$ENV_LOG"
 
+    - name: Configure Container App resources
+      env:
+        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+      run: |
+        echo "Setting container resources: CPU=0.5, Memory=1Gi..."
+        RESOURCE_LOG=$(mktemp)
+        if ! az containerapp update \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --cpu 0.5 \
+          --memory 1Gi \
+          > "$RESOURCE_LOG" 2>&1; then
+          echo "::group::Container App resource update failure"
+          cat "$RESOURCE_LOG"
+          echo "::endgroup::"
+          rm -f "$RESOURCE_LOG"
+          exit 1
+        fi
+        rm -f "$RESOURCE_LOG"
+        echo "✅ Container resources configured successfully"
+
     - name: Assign Azure roles to Managed Identity (Fallback)
       if: steps.deploy-application.outputs.containerAppPrincipalId != '' && steps.deploy-application.outputs.containerAppPrincipalId != 'null'
       continue-on-error: true
