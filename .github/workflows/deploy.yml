@@ -670,11 +670,12 @@ jobs:
             ASSIGN_RESULT=false
 
             if [ "$scope_type" = "resource-group" ]; then
+              RG_SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$scope_value"
               if az role assignment create \
                 --assignee-object-id "$PRINCIPAL_ID" \
                 --assignee-principal-type ServicePrincipal \
                 --role "$role_name" \
-                --resource-group "$scope_value" \
+                --scope "$RG_SCOPE" \
                 > "$ASSIGN_LOG" 2>&1; then
                 ASSIGN_RESULT=true
               fi
