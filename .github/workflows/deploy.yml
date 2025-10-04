@@ -302,7 +302,84 @@ jobs:
         echo "   Application URL: $APP_URL"
         echo "   Container App: $APP_NAME"
         echo "   Cosmos DB: $COSMOS_NAME"
-        echo "   Auto scale-to-zero: ~2-5 minutes of inactivity (platform-managed)"
+
+    - name: Configure scale settings (300 second cooldown)
+      env:
+        APP_NAME: ${{ steps.deploy-all.outputs.containerAppName }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+      run: |
+        echo "Attempting to configure scale-to-zero with 300 second cooldown..."
+
+        # Try to update scale rule with cooldown period
+        SCALE_LOG=$(mktemp)
+
+        # Method 1: Try updating with --scale-rule-metadata
+        echo "Method 1: Updating scale rule metadata..."
+        if az containerapp update \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --scale-rule-name http-rule \
+          --scale-rule-type http \
+          --scale-rule-http-concurrency 30 \
+          --scale-rule-metadata cooldownPeriod=300 pollingInterval=30 \
+          --min-replicas 0 \
+          --max-replicas 1 \
+          > "$SCALE_LOG" 2>&1; then
+          echo "✅ Scale rule updated with cooldown metadata"
+          cat "$SCALE_LOG"
+        else
+          echo "⚠️  Method 1 failed, trying alternative..."
+          cat "$SCALE_LOG"
+
+          # Method 2: Try az rest API directly
+          echo "Method 2: Using Azure REST API..."
+          APP_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+
+          if az rest \
+            --method patch \
+            --uri "${APP_ID}?api-version=2024-03-01" \
+            --body '{
+              "properties": {
+                "template": {
+                  "scale": {
+                    "minReplicas": 0,
+                    "maxReplicas": 1,
+                    "rules": [
+                      {
+                        "name": "http-rule",
+                        "http": {
+                          "metadata": {
+                            "concurrentRequests": "30"
+                          }
+                        }
+                      }
+                    ],
+                    "cooldownPeriod": 300,
+                    "pollingInterval": 30
+                  }
+                }
+              }
+            }' \
+            > "$SCALE_LOG" 2>&1; then
+            echo "✅ Scale settings updated via REST API"
+            cat "$SCALE_LOG"
+          else
+            echo "⚠️  Method 2 also failed"
+            cat "$SCALE_LOG"
+            echo "ℹ️  Falling back to default behavior (~2-5 minutes)"
+          fi
+        fi
+
+        rm -f "$SCALE_LOG"
+
+        # Show current scale configuration
+        echo ""
+        echo "Current scale configuration:"
+        az containerapp show \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --query "properties.template.scale" \
+          -o json || true
 
     - name: Assign Azure roles to Managed Identity (Fallback)
       if: steps.deploy-all.outputs.containerAppPrincipalId != '' && steps.deploy-all.outputs.containerAppPrincipalId != 'null'

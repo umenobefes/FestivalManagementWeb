@@ -128,6 +128,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
         {
           name: 'mongo-connection-string'
+          #disable-next-line use-secure-value-for-secure-inputs
           value: 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosDbAccountName}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
         }
         {
@@ -350,12 +351,9 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               metadata: {
                 concurrentRequests: '30'
               }
-              auth: []
             }
           }
         ]
-        pollingInterval: 30
-        cooldownPeriod: 300
       }
     }
   }
@@ -388,16 +386,8 @@ resource monitoringReaderRoleAssignment 'Microsoft.Authorization/roleAssignments
   }
 }
 
-// Assign Cost Management Reader role to subscription
-resource costManagementReaderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, containerApp.id, costManagementReaderRoleId)
-  scope: subscription()
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', costManagementReaderRoleId)
-    principalId: containerApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
+// Cost Management Reader role assignment is handled by the workflow (Fallback step)
+// because it requires subscription-level scope which cannot be deployed from a resource group-level Bicep file
 
 // Assign Monitoring Reader role to Cosmos DB
 resource cosmosMonitoringReaderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
