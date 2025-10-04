@@ -414,19 +414,39 @@ jobs:
               gitToken="$GIT_TOKEN" \
               gitCloneUrl="$GIT_CLONE_URL" \
             > "$DEPLOY_LOG" 2>&1; then
-            echo "::group::Container App deployment failure"
-            cat "$DEPLOY_LOG"
-            echo "::endgroup::"
-            rm -f "$DEPLOY_LOG"
+            if grep -qi "The content for this response was already consumed" "$DEPLOY_LOG"; then
+              echo "::warning::Azure CLI returned 'response already consumed' during deployment. Verifying Container App provisioning before failing..."
+              if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+                echo "✅ Container App creation succeeded despite CLI warning"
+                rm -f "$DEPLOY_LOG"
+              else
+                echo "::group::Container App deployment failure"
+                cat "$DEPLOY_LOG"
+                echo "::endgroup::"
+                rm -f "$DEPLOY_LOG"
+                echo "Deployment failed, retrieving operation diagnostics..."
+                az deployment operation group list \
+                  --resource-group "$RESOURCE_GROUP" \
+                  --name "$DEPLOYMENT_NAME" \
+                  -o json || true
+                exit 1
+              fi
+            else
+              echo "::group::Container App deployment failure"
+              cat "$DEPLOY_LOG"
+              echo "::endgroup::"
+              rm -f "$DEPLOY_LOG"
 
-            echo "Deployment failed, retrieving operation diagnostics..."
-            az deployment operation group list \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$DEPLOYMENT_NAME" \
-              -o json || true
-            exit 1
+              echo "Deployment failed, retrieving operation diagnostics..."
+              az deployment operation group list \
+                --resource-group "$RESOURCE_GROUP" \
+                --name "$DEPLOYMENT_NAME" \
+                -o json || true
+              exit 1
+            fi
+          else
+            rm -f "$DEPLOY_LOG"
           fi
-          rm -f "$DEPLOY_LOG"
         else
           UPDATE_LOG=$(mktemp)
           if ! az containerapp update \
