@@ -334,18 +334,9 @@ jobs:
             containerAppName="$APP_NAME" \
             location="$LOCATION" \
             environmentId="$ENVIRONMENT_ID" \
-            cosmosDbAccountName="$COSMOS_NAME" \
             imageTag="latest" \
             containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
             containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-            mongoConnectionString="$MONGO_CONN" \
-            googleClientId="$GOOGLE_CLIENT_ID" \
-            googleClientSecret="$GOOGLE_CLIENT_SECRET" \
-            initialUserEmail="$INITIAL_USER_EMAIL" \
-            gitAuthorName="$GIT_AUTHOR_NAME" \
-            gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
-            gitToken="$GIT_TOKEN" \
-            gitCloneUrl="$GIT_CLONE_URL" \
           > "$VALIDATE_LOG" 2>&1; then
           if grep -qi "The content for this response was already consumed" "$VALIDATE_LOG"; then
             echo "::warning::Azure CLI validation returned a known bug (response already consumed). Proceeding to deployment; see deployment step for concrete errors."
@@ -401,18 +392,9 @@ jobs:
               containerAppName="$APP_NAME" \
               location="$LOCATION" \
               environmentId="$ENVIRONMENT_ID" \
-              cosmosDbAccountName="$COSMOS_NAME" \
               imageTag="$IMAGE_TAG" \
               containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
               containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-              mongoConnectionString="$MONGO_CONN" \
-              googleClientId="$GOOGLE_CLIENT_ID" \
-              googleClientSecret="$GOOGLE_CLIENT_SECRET" \
-              initialUserEmail="$INITIAL_USER_EMAIL" \
-              gitAuthorName="$GIT_AUTHOR_NAME" \
-              gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
-              gitToken="$GIT_TOKEN" \
-              gitCloneUrl="$GIT_CLONE_URL" \
             > "$DEPLOY_LOG" 2>&1; then
             if grep -qi "The content for this response was already consumed" "$DEPLOY_LOG"; then
               echo "::warning::Azure CLI returned 'response already consumed' during deployment. Verifying Container App provisioning before failing..."
@@ -482,6 +464,7 @@ jobs:
         fi
         rm -f "$IDENTITY_LOG"
 
+        if false; then
         SECRET_LOG=$(mktemp)
         if ! az containerapp secret set \
           --name "$APP_NAME" \
@@ -555,6 +538,7 @@ jobs:
           exit 1
         fi
         rm -f "$ENV_LOG"
+        fi
 
         APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
         PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
@@ -568,6 +552,108 @@ jobs:
         else
           echo "✅ Managed Identity Principal ID: $PRINCIPAL_ID"
         fi
+
+    - name: Set Container App secrets
+      env:
+        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
+        GOOGLE_CLIENT_ID: ${{ steps.extract-secrets.outputs.google-client-id }}
+        GOOGLE_CLIENT_SECRET: ${{ steps.extract-secrets.outputs.google-client-secret }}
+        INITIAL_USER_EMAIL: ${{ steps.extract-secrets.outputs.initial-user-email }}
+        GIT_TOKEN: ${{ steps.extract-secrets.outputs.git-token }}
+        GIT_CLONE_URL: ${{ steps.extract-secrets.outputs.git-clone-url }}
+        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
+      run: |
+        set -eo pipefail
+
+        ENCODED_PASSWORD=$(printf %s "$MONGO_ADMIN_PASSWORD" | jq -sRr @uri)
+        MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+
+        SECRET_LOG=$(mktemp)
+        if ! az containerapp secret set \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --secrets \
+            mongo-connection-string="$MONGO_CONN" \
+            google-client-id="$GOOGLE_CLIENT_ID" \
+            google-client-secret="$GOOGLE_CLIENT_SECRET" \
+            initial-user-email="$INITIAL_USER_EMAIL" \
+            git-token="$GIT_TOKEN" \
+            git-clone-url="$GIT_CLONE_URL" \
+          > "$SECRET_LOG" 2>&1; then
+          echo "::group::Container App secret update failure"
+          cat "$SECRET_LOG"
+          echo "::endgroup::"
+          rm -f "$SECRET_LOG"
+          exit 1
+        fi
+        rm -f "$SECRET_LOG"
+
+    - name: Configure Container App environment
+      env:
+        APP_NAME: ${{ steps.extract-params.outputs.image-name }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+        SUBSCRIPTION_ID: ${{ env.SUBSCRIPTION_ID }}
+        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
+        GIT_AUTHOR_NAME: ${{ steps.extract-secrets.outputs.git-author-name }}
+        GIT_AUTHOR_EMAIL: ${{ steps.extract-secrets.outputs.git-author-email }}
+      run: |
+        set -eo pipefail
+
+        ENV_LOG=$(mktemp)
+        if ! az containerapp update \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --set-env-vars \
+            ASPNETCORE_ENVIRONMENT=Production \
+            MongoDbSettings__ConnectionString=secretref:mongo-connection-string \
+            MongoDbSettings__DatabaseName=FestivalManagement \
+            Authentication__Google__ClientId=secretref:google-client-id \
+            Authentication__Google__ClientSecret=secretref:google-client-secret \
+            InitialUser__Email=secretref:initial-user-email \
+            FreeTier__EnableBanner=true \
+            FreeTier__BudgetVcpuSeconds=180000 \
+            FreeTier__BudgetGiBSeconds=360000 \
+            FreeTier__Resource__VcpuPerReplica=0.25 \
+            FreeTier__Resource__MemoryGiBPerReplica=0.5 \
+            FreeTier__Resource__ReplicaFactor=1 \
+            FreeTier__EnforceRequestDailyCap=false \
+            FreeTier__Data__BudgetGb=100 \
+            FreeTier__Requests__Budget=2000000 \
+            FreeTier__Cosmos__Enabled=true \
+            FreeTier__Cosmos__SubscriptionId=$SUBSCRIPTION_ID \
+            FreeTier__Cosmos__ResourceGroup=$RESOURCE_GROUP \
+            FreeTier__Cosmos__AccountName=$COSMOS_NAME \
+            FreeTier__Cosmos__DatabaseName=FestivalManagement \
+            FreeTier__Cosmos__AccountResourceId=/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME \
+            FreeTier__Cosmos__Provisioning=vCore \
+            FreeTier__Cosmos__FreeTierStorageGb=32 \
+            FreeTier__Cosmos__FreeTierVCoreStorageGb=32 \
+            FreeTier__Cosmos__WarnRuPercent=90 \
+            FreeTier__Cosmos__WarnStoragePercent=90 \
+            FreeTier__Cosmos__RefreshMinutes=60 \
+            FreeTier__Cosmos__CollectionNames__0=TextKeyValues \
+            FreeTier__Cosmos__CollectionNames__1=ImageKeyValues \
+            AzureUsage__Enabled=true \
+            AzureUsage__ContainerAppName=$APP_NAME \
+            AzureUsage__ResourceGroup=$RESOURCE_GROUP \
+            AzureUsage__SubscriptionId=$SUBSCRIPTION_ID \
+            AzureUsage__MetricsRefreshMinutes=10 \
+            AzureUsage__CostRefreshMinutes=360 \
+            GitSettings__RemoteName=origin \
+            GitSettings__AuthorName="$GIT_AUTHOR_NAME" \
+            GitSettings__AuthorEmail="$GIT_AUTHOR_EMAIL" \
+            GitSettings__Token=secretref:git-token \
+            GitSettings__CloneUrl=secretref:git-clone-url \
+          > "$ENV_LOG" 2>&1; then
+          echo "::group::Container App env update failure"
+          cat "$ENV_LOG"
+          echo "::endgroup::"
+          rm -f "$ENV_LOG"
+          exit 1
+        fi
+        rm -f "$ENV_LOG"
 
     - name: Assign Azure roles to Managed Identity (Fallback)
       if: steps.deploy-application.outputs.containerAppPrincipalId != '' && steps.deploy-application.outputs.containerAppPrincipalId != 'null'
@@ -634,4 +720,3 @@ jobs:
     - name: Output application URL
       run: |
         echo "Application deployed to: ${{ steps.deploy-application.outputs.containerAppUrl }}"
-

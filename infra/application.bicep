@@ -4,11 +4,8 @@ param location string = resourceGroup().location
 @description('Container App name')
 param containerAppName string
 
-@description('Environment ID')
+@description('Environment ID for the Container App')
 param environmentId string
-
-@description('Cosmos DB account name')
-param cosmosDbAccountName string
 
 @description('Container image tag')
 param imageTag string = 'latest'
@@ -19,42 +16,6 @@ param containerRegistryServer string = 'ghcr.io'
 @description('Container registry repository')
 param containerRegistryRepository string
 
-@description('MongoDB connection string for the application')
-@secure()
-param mongoConnectionString string
-
-@description('Google OAuth client ID')
-@secure()
-param googleClientId string
-
-@description('Google OAuth client secret')
-@secure()
-param googleClientSecret string
-
-@description('Initial administrator email address')
-@secure()
-param initialUserEmail string
-
-@description('Git author name used by the app')
-param gitAuthorName string
-
-@description('Git author email used by the app')
-param gitAuthorEmail string
-
-@description('Git access token for deployment metadata sync')
-@secure()
-param gitToken string
-
-@description('Git clone URL for deployment metadata sync')
-@secure()
-param gitCloneUrl string
-
-// Reference to existing Cosmos DB cluster
-resource cosmosMongoCluster 'Microsoft.DocumentDB/mongoClusters@2024-07-01' existing = {
-  name: cosmosDbAccountName
-}
-
-// Container App - configured with secrets and usage monitoring environment variables
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
@@ -64,32 +25,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: environmentId
     configuration: {
-      secrets: [
-        {
-          name: 'mongo-connection-string'
-          value: mongoConnectionString
-        }
-        {
-          name: 'google-client-id'
-          value: googleClientId
-        }
-        {
-          name: 'google-client-secret'
-          value: googleClientSecret
-        }
-        {
-          name: 'initial-user-email'
-          value: initialUserEmail
-        }
-        {
-          name: 'git-token'
-          value: gitToken
-        }
-        {
-          name: 'git-clone-url'
-          value: gitCloneUrl
-        }
-      ]
       ingress: {
         external: true
         targetPort: 8080
@@ -107,168 +42,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'festivalManagementWeb'
           image: '${containerRegistryServer}/${containerRegistryRepository}:${imageTag}'
-          env: [
-            {
-              name: 'ASPNETCORE_ENVIRONMENT'
-              value: 'Production'
-            }
-            {
-              name: 'MongoDbSettings__ConnectionString'
-              secretRef: 'mongo-connection-string'
-            }
-            {
-              name: 'MongoDbSettings__DatabaseName'
-              value: 'FestivalManagement'
-            }
-            {
-              name: 'Authentication__Google__ClientId'
-              secretRef: 'google-client-id'
-            }
-            {
-              name: 'Authentication__Google__ClientSecret'
-              secretRef: 'google-client-secret'
-            }
-            {
-              name: 'InitialUser__Email'
-              secretRef: 'initial-user-email'
-            }
-            {
-              name: 'FreeTier__EnableBanner'
-              value: 'true'
-            }
-            {
-              name: 'FreeTier__BudgetVcpuSeconds'
-              value: '180000'
-            }
-            {
-              name: 'FreeTier__BudgetGiBSeconds'
-              value: '360000'
-            }
-            {
-              name: 'FreeTier__Resource__VcpuPerReplica'
-              value: '0.25'
-            }
-            {
-              name: 'FreeTier__Resource__MemoryGiBPerReplica'
-              value: '0.5'
-            }
-            {
-              name: 'FreeTier__Resource__ReplicaFactor'
-              value: '1'
-            }
-            {
-              name: 'FreeTier__EnforceRequestDailyCap'
-              value: 'false'
-            }
-            {
-              name: 'FreeTier__Data__BudgetGb'
-              value: '100'
-            }
-            {
-              name: 'FreeTier__Requests__Budget'
-              value: '2000000'
-            }
-            {
-              name: 'FreeTier__Cosmos__Enabled'
-              value: 'true'
-            }
-            {
-              name: 'FreeTier__Cosmos__SubscriptionId'
-              value: subscription().subscriptionId
-            }
-            {
-              name: 'FreeTier__Cosmos__ResourceGroup'
-              value: resourceGroup().name
-            }
-            {
-              name: 'FreeTier__Cosmos__AccountName'
-              value: cosmosDbAccountName
-            }
-            {
-              name: 'FreeTier__Cosmos__DatabaseName'
-              value: 'FestivalManagement'
-            }
-            {
-              name: 'FreeTier__Cosmos__AccountResourceId'
-              value: cosmosMongoCluster.id
-            }
-            {
-              name: 'FreeTier__Cosmos__Provisioning'
-              value: 'vCore'
-            }
-            {
-              name: 'FreeTier__Cosmos__FreeTierStorageGb'
-              value: '32'
-            }
-            {
-              name: 'FreeTier__Cosmos__FreeTierVCoreStorageGb'
-              value: '32'
-            }
-            {
-              name: 'FreeTier__Cosmos__WarnRuPercent'
-              value: '90'
-            }
-            {
-              name: 'FreeTier__Cosmos__WarnStoragePercent'
-              value: '90'
-            }
-            {
-              name: 'FreeTier__Cosmos__RefreshMinutes'
-              value: '60'
-            }
-            {
-              name: 'FreeTier__Cosmos__CollectionNames__0'
-              value: 'TextKeyValues'
-            }
-            {
-              name: 'FreeTier__Cosmos__CollectionNames__1'
-              value: 'ImageKeyValues'
-            }
-            {
-              name: 'AzureUsage__Enabled'
-              value: 'true'
-            }
-            {
-              name: 'AzureUsage__ContainerAppName'
-              value: containerAppName
-            }
-            {
-              name: 'AzureUsage__ResourceGroup'
-              value: resourceGroup().name
-            }
-            {
-              name: 'AzureUsage__SubscriptionId'
-              value: subscription().subscriptionId
-            }
-            {
-              name: 'AzureUsage__MetricsRefreshMinutes'
-              value: '10'
-            }
-            {
-              name: 'AzureUsage__CostRefreshMinutes'
-              value: '360'
-            }
-            {
-              name: 'GitSettings__RemoteName'
-              value: 'origin'
-            }
-            {
-              name: 'GitSettings__AuthorName'
-              value: gitAuthorName
-            }
-            {
-              name: 'GitSettings__AuthorEmail'
-              value: gitAuthorEmail
-            }
-            {
-              name: 'GitSettings__Token'
-              secretRef: 'git-token'
-            }
-            {
-              name: 'GitSettings__CloneUrl'
-              secretRef: 'git-clone-url'
-            }
-          ]
         }
       ]
       scale: {
@@ -289,7 +62,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-// Outputs
 output containerAppUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
 output containerAppPrincipalId string = containerApp.identity.principalId
 output containerAppName string = containerApp.name
