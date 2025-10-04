@@ -22,6 +22,13 @@ param containerRegistryServer string = 'ghcr.io'
 @description('Container registry repository in the form owner/repository')
 param containerRegistryRepository string
 
+@description('Container registry username')
+param containerRegistryUsername string
+
+@description('Container registry password or token')
+@secure()
+param containerRegistryPassword string
+
 @description('Google OAuth Client ID')
 @secure()
 param googleClientId string
@@ -116,6 +123,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       secrets: [
         {
+          name: 'container-registry-password'
+          value: containerRegistryPassword
+        }
+        {
           name: 'mongo-connection-string'
           value: 'mongodb+srv://mongoAdmin:${mongoAdminPassword}@${cosmosDbAccountName}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000'
         }
@@ -135,6 +146,13 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'git-clone-url'
           #disable-next-line use-secure-value-for-secure-inputs
           value: gitCloneUrl
+        }
+      ]
+      registries: [
+        {
+          server: containerRegistryServer
+          username: containerRegistryUsername
+          passwordSecretRef: 'container-registry-password'
         }
       ]
       ingress: {
@@ -193,11 +211,11 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'FreeTier__Resource__VcpuPerReplica'
-              value: '0.25'
+              value: '0.5'
             }
             {
               name: 'FreeTier__Resource__MemoryGiBPerReplica'
-              value: '0.5'
+              value: '1.0'
             }
             {
               name: 'FreeTier__Resource__ReplicaFactor'
@@ -317,8 +335,8 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
           ]
           resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
+            cpu: json('0.5')
+            memory: '1.0Gi'
           }
         }
       ]
@@ -332,9 +350,12 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               metadata: {
                 concurrentRequests: '30'
               }
+              auth: []
             }
           }
         ]
+        pollingInterval: 30
+        cooldownPeriod: 300
       }
     }
   }
