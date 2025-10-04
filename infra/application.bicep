@@ -16,6 +16,13 @@ param containerRegistryServer string = 'ghcr.io'
 @description('Container registry repository')
 param containerRegistryRepository string
 
+@description('Container registry username')
+param containerRegistryUsername string
+
+@description('Container registry password or token')
+@secure()
+param containerRegistryPassword string
+
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
@@ -25,6 +32,19 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: environmentId
     configuration: {
+      secrets: [
+        {
+          name: 'container-registry-password'
+          value: containerRegistryPassword
+        }
+      ]
+      registries: [
+        {
+          server: containerRegistryServer
+          username: containerRegistryUsername
+          passwordSecretRef: 'container-registry-password'
+        }
+      ]
       ingress: {
         external: true
         targetPort: 8080
