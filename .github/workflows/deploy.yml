@@ -103,7 +103,6 @@ jobs:
         fi
 
         IMAGE_NAME="${NAME_PREFIX}-app"
-
         echo "name-prefix=$NAME_PREFIX" >> $GITHUB_OUTPUT
         echo "location=$LOCATION" >> $GITHUB_OUTPUT
         echo "resource-group=rg-${NAME_PREFIX}" >> $GITHUB_OUTPUT
@@ -308,6 +307,8 @@ jobs:
         LOCATION: ${{ steps.extract-params.outputs.location }}
         CONTAINER_REGISTRY_SERVER: ${{ steps.extract-params.outputs.container-registry-server }}
         CONTAINER_REGISTRY_REPOSITORY: ${{ steps.extract-params.outputs.container-registry-repository }}
+        CONTAINER_REGISTRY_USERNAME: ${{ github.actor }}
+        CONTAINER_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         ENVIRONMENT_ID: ${{ steps.deploy-infrastructure.outputs.environmentId }}
         COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
         GOOGLE_CLIENT_ID: ${{ steps.extract-secrets.outputs.google-client-id }}
@@ -337,6 +338,8 @@ jobs:
             imageTag="latest" \
             containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
             containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
+            containerRegistryUsername="$CONTAINER_REGISTRY_USERNAME" \
+            containerRegistryPassword="$CONTAINER_REGISTRY_PASSWORD" \
           > "$VALIDATE_LOG" 2>&1; then
           if grep -qi "The content for this response was already consumed" "$VALIDATE_LOG"; then
             echo "::warning::Azure CLI validation returned a known bug (response already consumed). Proceeding to deployment; see deployment step for concrete errors."
@@ -368,14 +371,38 @@ jobs:
         GIT_TOKEN: ${{ steps.extract-secrets.outputs.git-token }}
         GIT_CLONE_URL: ${{ steps.extract-secrets.outputs.git-clone-url }}
         MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
+        REGISTRY_USERNAME: ${{ github.actor }}
+        REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       run: |
         set -euo pipefail
+
+        dump_deployment_diagnostics() {
+          local dep_name="$1"
+          local show_log ops_log
+          show_log=$(mktemp)
+          ops_log=$(mktemp)
+          echo "::group::ARM deployment diagnostics (${dep_name})"
+          if az deployment group show --name "$dep_name" --resource-group "$RESOURCE_GROUP" -o json > "$show_log" 2>&1; then
+            cat "$show_log"
+          else
+            cat "$show_log"
+          fi
+          if az deployment operation group list --resource-group "$RESOURCE_GROUP" --name "$dep_name" -o json > "$ops_log" 2>&1; then
+            cat "$ops_log"
+          else
+            cat "$ops_log"
+          fi
+          echo "::endgroup::"
+          rm -f "$show_log" "$ops_log"
+        }
 
         DEPLOYMENT_NAME="app-${{ github.run_number }}-${{ github.run_attempt }}"
         IMAGE_TAG="latest"
         ENCODED_PASSWORD=$(printf %s "$MONGO_ADMIN_PASSWORD" | jq -sRr @uri)
         MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
         IMAGE_REF="${CONTAINER_REGISTRY_SERVER}/${CONTAINER_REGISTRY_REPOSITORY}:${IMAGE_TAG}"
+        CONTAINER_REGISTRY_USERNAME="$REGISTRY_USERNAME"
+        CONTAINER_REGISTRY_PASSWORD="$REGISTRY_PASSWORD"
 
         APP_EXISTS=false
         if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
@@ -395,10 +422,13 @@ jobs:
               imageTag="$IMAGE_TAG" \
               containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
               containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
+              containerRegistryUsername="$CONTAINER_REGISTRY_USERNAME" \
+              containerRegistryPassword="$CONTAINER_REGISTRY_PASSWORD" \
             > "$DEPLOY_LOG" 2>&1; then
             echo "::group::Container App deployment failure (initial attempt)"
             cat "$DEPLOY_LOG"
             echo "::endgroup::"
+            dump_deployment_diagnostics "$DEPLOYMENT_NAME"
 
             if grep -qi "The content for this response was already consumed" "$DEPLOY_LOG"; then
               echo "::warning::Azure CLI returned 'response already consumed' during deployment. Retrying with a fresh deployment name..."
@@ -415,18 +445,13 @@ jobs:
                   imageTag="$IMAGE_TAG" \
                   containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
                   containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
+                  containerRegistryUsername="$CONTAINER_REGISTRY_USERNAME" \
+                  containerRegistryPassword="$CONTAINER_REGISTRY_PASSWORD" \
                 > "$RETRY_LOG" 2>&1; then
                 echo "::group::Container App deployment failure (retry)"
                 cat "$RETRY_LOG"
                 echo "::endgroup::"
-                if az deployment group show --name "$RETRY_DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-                  az deployment operation group list \
-                    --resource-group "$RESOURCE_GROUP" \
-                    --name "$RETRY_DEPLOYMENT_NAME" \
-                    -o json || true
-                else
-                  echo "ℹ️  Retry deployment record not found; skipping operation diagnostics"
-                fi
+                dump_deployment_diagnostics "$RETRY_DEPLOYMENT_NAME"
                 rm -f "$RETRY_LOG"
                 rm -f "$DEPLOY_LOG"
                 exit 1
@@ -434,14 +459,7 @@ jobs:
               echo "✅ Container App deployment succeeded on retry"
               rm -f "$RETRY_LOG"
             else
-              if az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-                az deployment operation group list \
-                  --resource-group "$RESOURCE_GROUP" \
-                  --name "$DEPLOYMENT_NAME" \
-                  -o json || true
-              else
-                echo "ℹ️  Deployment record '$DEPLOYMENT_NAME' was not created; ARM request likely rejected."
-              fi
+              dump_deployment_diagnostics "$DEPLOYMENT_NAME"
               rm -f "$DEPLOY_LOG"
               exit 1
             fi
