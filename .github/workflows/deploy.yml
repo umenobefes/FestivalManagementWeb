@@ -56,6 +56,62 @@ jobs:
         SUBSCRIPTION_ID=$(echo "$AZURE_CREDS" | jq -r '.subscriptionId')
         echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
 
+    - name: Check GitHub Actions service principal permissions
+      run: |
+        echo "🔍 Checking GitHub Actions service principal permissions..."
+
+        CURRENT_USER=$(az account show --query user.name -o tsv)
+        echo "   Current user: $CURRENT_USER"
+
+        # Check role assignments
+        echo ""
+        echo "Checking role assignments on subscription..."
+        ROLE_ASSIGNMENTS=$(az role assignment list --assignee "$CURRENT_USER" --scope "/subscriptions/$SUBSCRIPTION_ID" --query "[].{Role:roleDefinitionName}" -o json)
+
+        echo "Assigned roles:"
+        echo "$ROLE_ASSIGNMENTS" | jq -r '.[] | "   - \(.Role)"'
+
+        # Check for required permissions
+        HAS_CONTRIBUTOR=false
+        HAS_USER_ACCESS_ADMIN=false
+        HAS_OWNER=false
+
+        if echo "$ROLE_ASSIGNMENTS" | jq -e '.[] | select(.Role == "Contributor")' > /dev/null 2>&1; then
+          HAS_CONTRIBUTOR=true
+        fi
+
+        if echo "$ROLE_ASSIGNMENTS" | jq -e '.[] | select(.Role == "User Access Administrator")' > /dev/null 2>&1; then
+          HAS_USER_ACCESS_ADMIN=true
+        fi
+
+        if echo "$ROLE_ASSIGNMENTS" | jq -e '.[] | select(.Role == "Owner")' > /dev/null 2>&1; then
+          HAS_OWNER=true
+        fi
+
+        echo ""
+        echo "📋 Permission check results:"
+
+        if [ "$HAS_OWNER" = true ]; then
+          echo "   ✅ Owner role detected - all operations supported"
+        elif [ "$HAS_CONTRIBUTOR" = true ] && [ "$HAS_USER_ACCESS_ADMIN" = true ]; then
+          echo "   ✅ Contributor + User Access Administrator - all operations supported"
+        elif [ "$HAS_CONTRIBUTOR" = true ]; then
+          echo "   ⚠️  Contributor role only - can create resources but cannot assign roles"
+          echo "   ⚠️  FreeTier monitoring may not work without manual role assignment"
+          echo ""
+          echo "   To enable FreeTier monitoring, either:"
+          echo "   1. Add 'User Access Administrator' role to the service principal, OR"
+          echo "   2. Manually assign roles in Azure Portal after deployment:"
+          echo "      - Monitoring Reader on Resource Group"
+          echo "      - Cost Management Reader on Subscription"
+        else
+          echo "   ❌ Insufficient permissions detected"
+          echo "   Required: Contributor + User Access Administrator (or Owner)"
+        fi
+
+        echo ""
+        echo "Note: Deployment will continue, but some features may require manual configuration."
+
     - name: Extract parameters for resource group creation
       id: extract-params
       env:
@@ -514,63 +570,129 @@ jobs:
           --query "properties.template.scale" \
           -o json || true
 
-    - name: Assign Azure roles to Managed Identity (Fallback)
+    - name: Assign Azure roles to Container App Managed Identity
       if: steps.deploy-app.outputs.containerAppPrincipalId != '' && steps.deploy-app.outputs.containerAppPrincipalId != 'null'
-      continue-on-error: true
       env:
         PRINCIPAL_ID: ${{ steps.deploy-app.outputs.containerAppPrincipalId }}
         RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
         COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
       run: |
-        echo "🔐 Verifying Azure role assignments (Bicep may have already assigned these)..."
+        echo "🔐 Assigning Azure roles for FreeTier monitoring..."
+        echo "   Principal ID: $PRINCIPAL_ID"
 
-        # Assign Reader role to resource group
-        if az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type ServicePrincipal \
-          --role "Reader" \
-          --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-reader.log | grep -qi "already exists"; then
-          echo "ℹ️  Reader role already assigned to resource group"
-        elif grep -qi "Created role assignment" /tmp/role-reader.log; then
-          echo "✅ Assigned Reader role to resource group"
-        else
-          echo "⚠️  Could not assign Reader role (may require User Access Administrator permission)"
-          cat /tmp/role-reader.log
-        fi
+        # Get subscription ID
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 
-        # Assign Monitoring Reader role to resource group
-        if az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type ServicePrincipal \
-          --role "Monitoring Reader" \
-          --resource-group "$RESOURCE_GROUP" 2>&1 | tee /tmp/role-monitoring.log | grep -qi "already exists"; then
-          echo "ℹ️  Monitoring Reader role already assigned to resource group"
-        elif grep -qi "Created role assignment" /tmp/role-monitoring.log; then
-          echo "✅ Assigned Monitoring Reader role to resource group"
-        else
-          echo "⚠️  Could not assign Monitoring Reader role (may require User Access Administrator permission)"
-          cat /tmp/role-monitoring.log
-        fi
+        # Function to assign role with retry
+        assign_role_with_retry() {
+          local role_name="$1"
+          local scope_type="$2"
+          local scope_value="$3"
+          local max_attempts=3
 
-        # Assign Cost Management Reader role to subscription
-        if az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type ServicePrincipal \
-          --role "Cost Management Reader" \
-          --scope "/subscriptions/${{ env.SUBSCRIPTION_ID }}" 2>&1 | tee /tmp/role-cost.log | grep -qi "already exists"; then
-          echo "ℹ️  Cost Management Reader role already assigned to subscription"
-        elif grep -qi "Created role assignment" /tmp/role-cost.log; then
-          echo "✅ Assigned Cost Management Reader role to subscription"
+          for attempt in $(seq 1 $max_attempts); do
+            echo ""
+            echo "Assigning $role_name (attempt $attempt/$max_attempts)..."
+
+            ASSIGN_LOG=$(mktemp)
+            ASSIGN_RESULT=false
+
+            if [ "$scope_type" = "resource-group" ]; then
+              if az role assignment create \
+                --assignee-object-id "$PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$role_name" \
+                --resource-group "$scope_value" \
+                > "$ASSIGN_LOG" 2>&1; then
+                ASSIGN_RESULT=true
+              fi
+            elif [ "$scope_type" = "subscription" ]; then
+              if az role assignment create \
+                --assignee-object-id "$PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$role_name" \
+                --scope "/subscriptions/$scope_value" \
+                > "$ASSIGN_LOG" 2>&1; then
+                ASSIGN_RESULT=true
+              fi
+            elif [ "$scope_type" = "resource" ]; then
+              if az role assignment create \
+                --assignee-object-id "$PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$role_name" \
+                --scope "$scope_value" \
+                > "$ASSIGN_LOG" 2>&1; then
+                ASSIGN_RESULT=true
+              fi
+            fi
+
+            if [ "$ASSIGN_RESULT" = true ]; then
+              echo "✅ Successfully assigned $role_name"
+              rm -f "$ASSIGN_LOG"
+              return 0
+            elif grep -qi "already exists\|already assigned" "$ASSIGN_LOG"; then
+              echo "ℹ️  $role_name already assigned"
+              rm -f "$ASSIGN_LOG"
+              return 0
+            else
+              echo "⚠️  Attempt $attempt failed:"
+              cat "$ASSIGN_LOG"
+              rm -f "$ASSIGN_LOG"
+
+              if [ $attempt -lt $max_attempts ]; then
+                echo "Waiting 10 seconds before retry..."
+                sleep 10
+              fi
+            fi
+          done
+
+          echo "❌ Failed to assign $role_name after $max_attempts attempts"
+          return 1
+        }
+
+        # Wait for Managed Identity to propagate
+        echo "Waiting 30 seconds for Managed Identity to propagate in Azure AD..."
+        sleep 30
+
+        # 1. Reader role on Resource Group (for general resource access)
+        assign_role_with_retry "Reader" "resource-group" "$RESOURCE_GROUP" || {
+          echo "::warning::Failed to assign Reader role - monitoring features may not work"
+        }
+
+        # 2. Monitoring Reader role on Resource Group (for metrics access)
+        assign_role_with_retry "Monitoring Reader" "resource-group" "$RESOURCE_GROUP" || {
+          echo "::error::Failed to assign Monitoring Reader role - this is REQUIRED for FreeTier monitoring"
+          exit 1
+        }
+
+        # 3. Cost Management Reader role on Subscription (for cost data)
+        assign_role_with_retry "Cost Management Reader" "subscription" "$SUBSCRIPTION_ID" || {
+          echo "::warning::Failed to assign Cost Management Reader role - cost monitoring may not work"
+          echo "::warning::You may need to manually assign this role in Azure Portal"
+          echo "::warning::Required permission: User Access Administrator or Owner at subscription level"
+        }
+
+        # 4. Monitoring Reader on Cosmos DB (for Cosmos metrics)
+        COSMOS_ID=$(az cosmosdb mongocluster show --cluster-name "$COSMOS_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$COSMOS_ID" ] && [ "$COSMOS_ID" != "null" ]; then
+          assign_role_with_retry "Monitoring Reader" "resource" "$COSMOS_ID" || {
+            echo "::warning::Failed to assign Monitoring Reader role on Cosmos DB"
+          }
         else
-          echo "⚠️  Could not assign Cost Management Reader role (may require User Access Administrator permission)"
-          cat /tmp/role-cost.log
+          echo "⚠️  Could not find Cosmos DB resource ID, skipping Cosmos-specific role assignment"
         fi
 
         echo ""
-        echo "✅ Role assignment verification completed"
-        echo "   Monitoring Reader at resource group scope provides access to all resource metrics, including Cosmos DB."
-        echo "   If roles were already assigned by Bicep, the app is ready to use."
-        echo "   If warnings appeared, ensure the service principal has User Access Administrator permission."
+        echo "✅ Role assignment completed"
+        echo ""
+        echo "📊 Summary of permissions for FreeTier monitoring:"
+        echo "   ✓ Reader on Resource Group          → General resource access"
+        echo "   ✓ Monitoring Reader on RG           → Container Apps metrics (CPU, Memory, Requests)"
+        echo "   ✓ Cost Management Reader on Sub     → Cost data (if assigned)"
+        echo "   ✓ Monitoring Reader on Cosmos DB    → Database metrics (if assigned)"
+        echo ""
+        echo "If any warnings appeared above, the app may not be able to display all monitoring data."
+        echo "To fix: Grant 'User Access Administrator' role to the GitHub Actions service principal."
 
     - name: Cleanup secrets
       if: always()
