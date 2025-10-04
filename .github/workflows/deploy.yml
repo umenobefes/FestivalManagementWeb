@@ -264,10 +264,13 @@ jobs:
         set -euo pipefail
 
         REGISTRY_USERNAME_LOWER=$(echo "$CONTAINER_REGISTRY_USERNAME" | tr '[:upper:]' '[:lower:]')
+        DEPLOYMENT_NAME="main-${{ github.run_number }}-${{ github.run_attempt }}"
 
         echo "Deploying all resources with main.bicep..."
-        az deployment group create \
-          --name "main-${{ github.run_number }}-${{ github.run_attempt }}" \
+        DEPLOY_LOG=$(mktemp)
+
+        if ! az deployment group create \
+          --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
           --template-file infra/main.bicep \
           --parameters \
@@ -286,22 +289,66 @@ jobs:
             gitToken="$GIT_TOKEN" \
             gitCloneUrl="$GIT_CLONE_URL" \
             mongoAdminPassword="$MONGO_ADMIN_PASSWORD" \
-          --output json > deployment-output.json
+          --output json > deployment-output.json 2>"$DEPLOY_LOG"; then
 
-        APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' deployment-output.json)
-        PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' deployment-output.json)
-        APP_NAME=$(jq -r '.properties.outputs.containerAppName.value' deployment-output.json)
-        COSMOS_NAME=$(jq -r '.properties.outputs.cosmosMongoClusterName.value' deployment-output.json)
+          echo "::group::Deployment failed"
+          cat "$DEPLOY_LOG"
+          echo "::endgroup::"
 
-        echo "containerAppUrl=$APP_URL" >> $GITHUB_OUTPUT
-        echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
-        echo "containerAppName=$APP_NAME" >> $GITHUB_OUTPUT
-        echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
+          if grep -qi "The content for this response was already consumed" "$DEPLOY_LOG"; then
+            echo "::warning::Encountered 'response already consumed' error - this is a known Azure CLI bug"
+            echo "Checking if deployment actually succeeded despite the error..."
 
-        echo "✅ Deployment completed successfully"
-        echo "   Application URL: $APP_URL"
-        echo "   Container App: $APP_NAME"
-        echo "   Cosmos DB: $COSMOS_NAME"
+            # Wait a bit for Azure to catch up
+            sleep 10
+
+            # Check if the container app was created
+            APP_NAME="${NAME_PREFIX}-app"
+            if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+              echo "✅ Container App exists - deployment may have succeeded despite error"
+
+              APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
+              PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
+              COSMOS_NAME="${NAME_PREFIX}-cosmos"
+
+              echo "containerAppUrl=https://$APP_URL" >> $GITHUB_OUTPUT
+              echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
+              echo "containerAppName=$APP_NAME" >> $GITHUB_OUTPUT
+              echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
+
+              echo "✅ Recovered from deployment error"
+              echo "   Application URL: https://$APP_URL"
+              echo "   Container App: $APP_NAME"
+              echo "   Cosmos DB: $COSMOS_NAME"
+            else
+              echo "❌ Deployment failed and container app does not exist"
+              rm -f "$DEPLOY_LOG"
+              exit 1
+            fi
+          else
+            echo "❌ Deployment failed with unknown error"
+            rm -f "$DEPLOY_LOG"
+            exit 1
+          fi
+        else
+          # Normal success path
+          APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' deployment-output.json)
+          PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' deployment-output.json)
+          APP_NAME=$(jq -r '.properties.outputs.containerAppName.value' deployment-output.json)
+          COSMOS_NAME=$(jq -r '.properties.outputs.cosmosMongoClusterName.value' deployment-output.json)
+
+          echo "containerAppUrl=$APP_URL" >> $GITHUB_OUTPUT
+          echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
+          echo "containerAppName=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
+
+          echo "✅ Deployment completed successfully"
+          echo "   Application URL: $APP_URL"
+          echo "   Container App: $APP_NAME"
+          echo "   Cosmos DB: $COSMOS_NAME"
+        fi
+
+        rm -f "$DEPLOY_LOG"
 
     - name: Configure scale settings (300 second cooldown)
       env:

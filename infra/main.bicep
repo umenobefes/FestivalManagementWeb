@@ -362,7 +362,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 // Role Assignments for Managed Identity
 var readerRoleId = 'acdd72a7-3385-48ef-bd42-f606fba81ae7'
 var monitoringReaderRoleId = '43d0d8ad-25c7-4714-9337-8ba259a9fe05'
-var costManagementReaderRoleId = '72fafb9e-0641-4937-9268-a91bfd8191a3'
 
 // Assign Reader role to resource group
 resource readerRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
