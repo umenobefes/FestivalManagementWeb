@@ -242,16 +242,79 @@ jobs:
           echo "⚠️  Could not set package visibility automatically"
         fi
 
-    - name: Deploy all resources using main.bicep
-      id: deploy-all
+    - name: Deploy infrastructure only (Cosmos DB + Environment)
+      id: deploy-infrastructure
       env:
         NAME_PREFIX: ${{ steps.extract-params.outputs.name-prefix }}
         RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
         LOCATION: ${{ steps.extract-params.outputs.location }}
+        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
+      run: |
+        set -euo pipefail
+
+        ENV_NAME="${NAME_PREFIX}-env"
+        COSMOS_NAME="${NAME_PREFIX}-cosmos"
+
+        # Check if infrastructure already exists
+        ENV_EXISTS=false
+        COSMOS_EXISTS=false
+
+        if az containerapp env show --name "$ENV_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+          echo "✅ Container Apps Environment already exists: $ENV_NAME"
+          ENV_EXISTS=true
+        fi
+
+        if az cosmosdb mongocluster show --cluster-name "$COSMOS_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null 2>&1; then
+          echo "✅ Cosmos DB already exists: $COSMOS_NAME"
+          COSMOS_EXISTS=true
+        fi
+
+        # Determine what to create
+        CREATE_NEW_ENVIRONMENT=false
+        CREATE_NEW_COSMOS=false
+
+        if [ "$ENV_EXISTS" = false ]; then
+          CREATE_NEW_ENVIRONMENT=true
+          echo "Will create new Container Apps Environment"
+        fi
+
+        if [ "$COSMOS_EXISTS" = false ]; then
+          CREATE_NEW_COSMOS=true
+          echo "Will create new Cosmos DB"
+        fi
+
+        # Deploy infrastructure
+        echo "Deploying infrastructure..."
+        az deployment group create \
+          --name "infra-${{ github.run_number }}-${{ github.run_attempt }}" \
+          --resource-group "$RESOURCE_GROUP" \
+          --template-file infra/infrastructure.bicep \
+          --parameters namePrefix="$NAME_PREFIX" \
+          --parameters location="$LOCATION" \
+          --parameters mongoAdminPassword="$MONGO_ADMIN_PASSWORD" \
+          --parameters createNewEnvironment=$CREATE_NEW_ENVIRONMENT \
+          --parameters createNewCosmosDb=$CREATE_NEW_COSMOS \
+          --output json > infra-output.json
+
+        ENV_ID=$(jq -r '.properties.outputs.environmentId.value' infra-output.json)
+
+        echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
+        echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
+        echo "✅ Infrastructure deployment completed"
+
+    - name: Deploy Container App
+      id: deploy-app
+      env:
+        NAME_PREFIX: ${{ steps.extract-params.outputs.name-prefix }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+        LOCATION: ${{ steps.extract-params.outputs.location }}
+        ENVIRONMENT_ID: ${{ steps.deploy-infrastructure.outputs.environmentId }}
+        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
         CONTAINER_REGISTRY_SERVER: ${{ steps.extract-params.outputs.container-registry-server }}
         CONTAINER_REGISTRY_REPOSITORY: ${{ steps.extract-params.outputs.container-registry-repository }}
-        CONTAINER_REGISTRY_USERNAME: ${{ github.actor }}
-        CONTAINER_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        REGISTRY_USERNAME: ${{ github.actor }}
+        REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
         GOOGLE_CLIENT_ID: ${{ steps.extract-secrets.outputs.google-client-id }}
         GOOGLE_CLIENT_SECRET: ${{ steps.extract-secrets.outputs.google-client-secret }}
         INITIAL_USER_EMAIL: ${{ steps.extract-secrets.outputs.initial-user-email }}
@@ -259,100 +322,123 @@ jobs:
         GIT_AUTHOR_EMAIL: ${{ steps.extract-secrets.outputs.git-author-email }}
         GIT_TOKEN: ${{ steps.extract-secrets.outputs.git-token }}
         GIT_CLONE_URL: ${{ steps.extract-secrets.outputs.git-clone-url }}
-        MONGO_ADMIN_PASSWORD: ${{ steps.extract-secrets.outputs.mongo-admin-password }}
       run: |
         set -euo pipefail
 
-        REGISTRY_USERNAME_LOWER=$(echo "$CONTAINER_REGISTRY_USERNAME" | tr '[:upper:]' '[:lower:]')
-        DEPLOYMENT_NAME="main-${{ github.run_number }}-${{ github.run_attempt }}"
+        APP_NAME="${NAME_PREFIX}-app"
+        IMAGE_TAG="latest"
+        IMAGE_REF="${CONTAINER_REGISTRY_SERVER}/${CONTAINER_REGISTRY_REPOSITORY}:${IMAGE_TAG}"
+        REGISTRY_USERNAME_LOWER=$(echo "$REGISTRY_USERNAME" | tr '[:upper:]' '[:lower:]')
 
-        echo "Deploying all resources with main.bicep..."
-        DEPLOY_LOG=$(mktemp)
-
-        if ! az deployment group create \
-          --name "$DEPLOYMENT_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --template-file infra/main.bicep \
-          --parameters \
-            namePrefix="$NAME_PREFIX" \
-            location="$LOCATION" \
-            imageTag="latest" \
-            containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
-            containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-            containerRegistryUsername="$REGISTRY_USERNAME_LOWER" \
-            containerRegistryPassword="$CONTAINER_REGISTRY_PASSWORD" \
-            googleClientId="$GOOGLE_CLIENT_ID" \
-            googleClientSecret="$GOOGLE_CLIENT_SECRET" \
-            initialUserEmail="$INITIAL_USER_EMAIL" \
-            gitAuthorName="$GIT_AUTHOR_NAME" \
-            gitAuthorEmail="$GIT_AUTHOR_EMAIL" \
-            gitToken="$GIT_TOKEN" \
-            gitCloneUrl="$GIT_CLONE_URL" \
-            mongoAdminPassword="$MONGO_ADMIN_PASSWORD" \
-          --output json > deployment-output.json 2>"$DEPLOY_LOG"; then
-
-          echo "::group::Deployment failed"
-          cat "$DEPLOY_LOG"
-          echo "::endgroup::"
-
-          if grep -qi "The content for this response was already consumed" "$DEPLOY_LOG"; then
-            echo "::warning::Encountered 'response already consumed' error - this is a known Azure CLI bug"
-            echo "Checking if deployment actually succeeded despite the error..."
-
-            # Wait a bit for Azure to catch up
-            sleep 10
-
-            # Check if the container app was created
-            APP_NAME="${NAME_PREFIX}-app"
-            if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-              echo "✅ Container App exists - deployment may have succeeded despite error"
-
-              APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
-              PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
-              COSMOS_NAME="${NAME_PREFIX}-cosmos"
-
-              echo "containerAppUrl=https://$APP_URL" >> $GITHUB_OUTPUT
-              echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
-              echo "containerAppName=$APP_NAME" >> $GITHUB_OUTPUT
-              echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
-
-              echo "✅ Recovered from deployment error"
-              echo "   Application URL: https://$APP_URL"
-              echo "   Container App: $APP_NAME"
-              echo "   Cosmos DB: $COSMOS_NAME"
-            else
-              echo "❌ Deployment failed and container app does not exist"
-              rm -f "$DEPLOY_LOG"
-              exit 1
-            fi
-          else
-            echo "❌ Deployment failed with unknown error"
-            rm -f "$DEPLOY_LOG"
-            exit 1
-          fi
-        else
-          # Normal success path
-          APP_URL=$(jq -r '.properties.outputs.containerAppUrl.value' deployment-output.json)
-          PRINCIPAL_ID=$(jq -r '.properties.outputs.containerAppPrincipalId.value' deployment-output.json)
-          APP_NAME=$(jq -r '.properties.outputs.containerAppName.value' deployment-output.json)
-          COSMOS_NAME=$(jq -r '.properties.outputs.cosmosMongoClusterName.value' deployment-output.json)
-
-          echo "containerAppUrl=$APP_URL" >> $GITHUB_OUTPUT
-          echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
-          echo "containerAppName=$APP_NAME" >> $GITHUB_OUTPUT
-          echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
-
-          echo "✅ Deployment completed successfully"
-          echo "   Application URL: $APP_URL"
-          echo "   Container App: $APP_NAME"
-          echo "   Cosmos DB: $COSMOS_NAME"
+        # Check if app exists
+        APP_EXISTS=false
+        if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+          APP_EXISTS=true
+          echo "Container App already exists, will update it"
         fi
 
-        rm -f "$DEPLOY_LOG"
+        # Prepare MongoDB connection string
+        ENCODED_PASSWORD=$(printf %s "$MONGO_ADMIN_PASSWORD" | jq -sRr @uri)
+        MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+
+        if [ "$APP_EXISTS" = false ]; then
+          echo "Creating Container App with az containerapp create..."
+          az containerapp create \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --environment "$ENVIRONMENT_ID" \
+            --image "$IMAGE_REF" \
+            --target-port 8080 \
+            --ingress external \
+            --registry-server "$CONTAINER_REGISTRY_SERVER" \
+            --registry-username "$REGISTRY_USERNAME_LOWER" \
+            --registry-password "$REGISTRY_PASSWORD" \
+            --cpu 0.5 \
+            --memory 1.0Gi \
+            --min-replicas 0 \
+            --max-replicas 1 \
+            --system-assigned \
+            --secrets \
+              mongo-connection-string="$MONGO_CONN" \
+              google-client-id="$GOOGLE_CLIENT_ID" \
+              google-client-secret="$GOOGLE_CLIENT_SECRET" \
+              initial-user-email="$INITIAL_USER_EMAIL" \
+              git-token="$GIT_TOKEN" \
+              git-clone-url="$GIT_CLONE_URL" \
+            --env-vars \
+              ASPNETCORE_ENVIRONMENT=Production \
+              MongoDbSettings__ConnectionString=secretref:mongo-connection-string \
+              MongoDbSettings__DatabaseName=FestivalManagement \
+              Authentication__Google__ClientId=secretref:google-client-id \
+              Authentication__Google__ClientSecret=secretref:google-client-secret \
+              InitialUser__Email=secretref:initial-user-email \
+              GitSettings__RemoteName=origin \
+              GitSettings__AuthorName="$GIT_AUTHOR_NAME" \
+              GitSettings__AuthorEmail="$GIT_AUTHOR_EMAIL" \
+              GitSettings__Token=secretref:git-token \
+              GitSettings__CloneUrl=secretref:git-clone-url
+        else
+          echo "Updating existing Container App..."
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE_REF" \
+            --cpu 0.5 \
+            --memory 1.0Gi
+        fi
+
+        # Add FreeTier and AzureUsage environment variables
+        echo "Adding FreeTier configuration..."
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+        az containerapp update \
+          --name "$APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --set-env-vars \
+            FreeTier__EnableBanner=true \
+            FreeTier__BudgetVcpuSeconds=180000 \
+            FreeTier__BudgetGiBSeconds=360000 \
+            FreeTier__Resource__VcpuPerReplica=0.5 \
+            FreeTier__Resource__MemoryGiBPerReplica=1.0 \
+            FreeTier__Resource__ReplicaFactor=1 \
+            FreeTier__EnforceRequestDailyCap=false \
+            FreeTier__Data__BudgetGb=100 \
+            FreeTier__Requests__Budget=2000000 \
+            FreeTier__Cosmos__Enabled=true \
+            FreeTier__Cosmos__SubscriptionId=$SUBSCRIPTION_ID \
+            FreeTier__Cosmos__ResourceGroup=$RESOURCE_GROUP \
+            FreeTier__Cosmos__AccountName=$COSMOS_NAME \
+            FreeTier__Cosmos__DatabaseName=FestivalManagement \
+            FreeTier__Cosmos__AccountResourceId=/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DocumentDB/mongoClusters/$COSMOS_NAME \
+            FreeTier__Cosmos__Provisioning=vCore \
+            FreeTier__Cosmos__FreeTierStorageGb=32 \
+            FreeTier__Cosmos__FreeTierVCoreStorageGb=32 \
+            FreeTier__Cosmos__WarnRuPercent=90 \
+            FreeTier__Cosmos__WarnStoragePercent=90 \
+            FreeTier__Cosmos__RefreshMinutes=60 \
+            FreeTier__Cosmos__CollectionNames__0=TextKeyValues \
+            FreeTier__Cosmos__CollectionNames__1=ImageKeyValues \
+            AzureUsage__Enabled=true \
+            AzureUsage__ContainerAppName=$APP_NAME \
+            AzureUsage__ResourceGroup=$RESOURCE_GROUP \
+            AzureUsage__SubscriptionId=$SUBSCRIPTION_ID \
+            AzureUsage__MetricsRefreshMinutes=10 \
+            AzureUsage__CostRefreshMinutes=360
+
+        # Get outputs
+        APP_URL=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.configuration.ingress.fqdn" -o tsv)
+        PRINCIPAL_ID=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.principalId" -o tsv)
+
+        echo "containerAppUrl=https://$APP_URL" >> $GITHUB_OUTPUT
+        echo "containerAppPrincipalId=$PRINCIPAL_ID" >> $GITHUB_OUTPUT
+        echo "containerAppName=$APP_NAME" >> $GITHUB_OUTPUT
+
+        echo "✅ Container App deployment completed"
+        echo "   Application URL: https://$APP_URL"
 
     - name: Configure scale settings (300 second cooldown)
       env:
-        APP_NAME: ${{ steps.deploy-all.outputs.containerAppName }}
+        APP_NAME: ${{ steps.deploy-app.outputs.containerAppName }}
         RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
       run: |
         echo "Attempting to configure scale-to-zero with 300 second cooldown..."
@@ -429,12 +515,12 @@ jobs:
           -o json || true
 
     - name: Assign Azure roles to Managed Identity (Fallback)
-      if: steps.deploy-all.outputs.containerAppPrincipalId != '' && steps.deploy-all.outputs.containerAppPrincipalId != 'null'
+      if: steps.deploy-app.outputs.containerAppPrincipalId != '' && steps.deploy-app.outputs.containerAppPrincipalId != 'null'
       continue-on-error: true
       env:
-        PRINCIPAL_ID: ${{ steps.deploy-all.outputs.containerAppPrincipalId }}
+        PRINCIPAL_ID: ${{ steps.deploy-app.outputs.containerAppPrincipalId }}
         RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
-        COSMOS_NAME: ${{ steps.deploy-all.outputs.cosmosDbAccountName }}
+        COSMOS_NAME: ${{ steps.deploy-infrastructure.outputs.cosmosDbAccountName }}
       run: |
         echo "🔐 Verifying Azure role assignments (Bicep may have already assigned these)..."
 
@@ -492,4 +578,4 @@ jobs:
 
     - name: Output application URL
       run: |
-        echo "Application deployed to: ${{ steps.deploy-all.outputs.containerAppUrl }}"
+        echo "Application deployed to: ${{ steps.deploy-app.outputs.containerAppUrl }}"
