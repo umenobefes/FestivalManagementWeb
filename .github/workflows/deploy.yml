@@ -329,6 +329,20 @@ jobs:
         az containerapp env show --ids "$ENVIRONMENT_ID" -o json || true
         exit 1
 
+    - name: Verify container image exists
+      env:
+        CONTAINER_REGISTRY_SERVER: ${{ steps.extract-params.outputs.container-registry-server }}
+        CONTAINER_REGISTRY_REPOSITORY: ${{ steps.extract-params.outputs.container-registry-repository }}
+      run: |
+        echo "Verifying image: $CONTAINER_REGISTRY_SERVER/$CONTAINER_REGISTRY_REPOSITORY:latest"
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$CONTAINER_REGISTRY_SERVER" --username "${{ github.actor }}" --password-stdin
+        if docker manifest inspect "$CONTAINER_REGISTRY_SERVER/$CONTAINER_REGISTRY_REPOSITORY:latest" > /dev/null 2>&1; then
+          echo "✅ Container image exists and is accessible"
+        else
+          echo "❌ Container image not found or not accessible"
+          exit 1
+        fi
+
     - name: Validate Container App template
       env:
         APP_NAME: ${{ steps.extract-params.outputs.image-name }}

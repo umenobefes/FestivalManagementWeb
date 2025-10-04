@@ -31,6 +31,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
   properties: {
     managedEnvironmentId: environmentId
+    workloadProfileName: 'Consumption'
     configuration: {
       secrets: [
         {
@@ -71,7 +72,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       scale: {
         minReplicas: 0
         maxReplicas: 1
-        cooldownPeriod: 300
         rules: [
           {
             name: 'http-rule'

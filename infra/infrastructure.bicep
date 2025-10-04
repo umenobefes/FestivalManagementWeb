@@ -24,7 +24,14 @@ param createNewCosmosDb bool = false
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = if (createNewEnvironment) {
   name: containerAppsEnvironmentName
   location: location
-  properties: {}
+  properties: {
+    workloadProfiles: [
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ]
+  }
 }
 
 resource existingContainerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = if (!createNewEnvironment) {
