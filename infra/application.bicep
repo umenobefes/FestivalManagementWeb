@@ -31,7 +31,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
   properties: {
     managedEnvironmentId: environmentId
-    workloadProfileName: 'Consumption'
     configuration: {
       secrets: [
         {
@@ -64,8 +63,8 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'festivalManagementWeb'
           image: '${containerRegistryServer}/${containerRegistryRepository}:${imageTag}'
           resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
+            cpu: '0.5'
+            memory: '1Gi'
           }
         }
       ]
