@@ -300,6 +300,35 @@ jobs:
         echo "environmentId=$ENV_ID" >> $GITHUB_OUTPUT
         echo "cosmosDbAccountName=$COSMOS_NAME" >> $GITHUB_OUTPUT
 
+    - name: Wait for Container Apps Environment ready
+      env:
+        ENVIRONMENT_ID: ${{ steps.deploy-infrastructure.outputs.environmentId }}
+        RESOURCE_GROUP: ${{ steps.extract-params.outputs.resource-group }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$ENVIRONMENT_ID" ] || [ "$ENVIRONMENT_ID" = "null" ]; then
+          echo "Environment ID not provided"
+          exit 1
+        fi
+
+        ENV_NAME=${ENVIRONMENT_ID##*/}
+        echo "Waiting for Container Apps Environment '$ENV_NAME' to reach Succeeded"
+
+        for attempt in $(seq 1 30); do
+          STATE=$(az containerapp env show --ids "$ENVIRONMENT_ID" --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Unknown")
+          echo "Attempt $attempt/30: state=$STATE"
+          if [ "$STATE" = "Succeeded" ]; then
+            echo "Container Apps Environment is ready"
+            exit 0
+          fi
+          sleep 20
+        done
+
+        echo "Container Apps Environment did not reach 'Succeeded' within expected time"
+        az containerapp env show --ids "$ENVIRONMENT_ID" -o json || true
+        exit 1
+
     - name: Validate Container App template
       env:
         APP_NAME: ${{ steps.extract-params.outputs.image-name }}
@@ -327,6 +356,8 @@ jobs:
         MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 
         VALIDATE_LOG=$(mktemp)
+        REGISTRY_USERNAME_LOWER=$(echo "$CONTAINER_REGISTRY_USERNAME" | tr '[:upper:]' '[:lower:]')
+
         if ! az deployment group validate \
           --name "$DEPLOYMENT_NAME" \
           --resource-group "$RESOURCE_GROUP" \
@@ -338,7 +369,7 @@ jobs:
             imageTag="latest" \
             containerRegistryServer="$CONTAINER_REGISTRY_SERVER" \
             containerRegistryRepository="$CONTAINER_REGISTRY_REPOSITORY" \
-            containerRegistryUsername="$CONTAINER_REGISTRY_USERNAME" \
+            containerRegistryUsername="$REGISTRY_USERNAME_LOWER" \
             containerRegistryPassword="$CONTAINER_REGISTRY_PASSWORD" \
           > "$VALIDATE_LOG" 2>&1; then
           if grep -qi "The content for this response was already consumed" "$VALIDATE_LOG"; then
@@ -401,7 +432,7 @@ jobs:
         ENCODED_PASSWORD=$(printf %s "$MONGO_ADMIN_PASSWORD" | jq -sRr @uri)
         MONGO_CONN="mongodb+srv://mongoAdmin:${ENCODED_PASSWORD}@${COSMOS_NAME}.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
         IMAGE_REF="${CONTAINER_REGISTRY_SERVER}/${CONTAINER_REGISTRY_REPOSITORY}:${IMAGE_TAG}"
-        CONTAINER_REGISTRY_USERNAME="$REGISTRY_USERNAME"
+        CONTAINER_REGISTRY_USERNAME=$(echo "$REGISTRY_USERNAME" | tr '[:upper:]' '[:lower:]')
         CONTAINER_REGISTRY_PASSWORD="$REGISTRY_PASSWORD"
 
         APP_EXISTS=false
