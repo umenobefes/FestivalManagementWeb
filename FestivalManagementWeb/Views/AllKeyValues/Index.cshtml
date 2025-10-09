@@ -1,0 +1,718 @@
+@model FestivalManagementWeb.Models.AllKeyValueViewModel
+
+@{
+    ViewData["Title"] = "全データ管理";
+}
+
+<h1>@ViewData["Title"]</h1>
+<p class="text-muted">現在のブランチ: <strong>@Model.SelectedYear</strong></p>
+
+<hr />
+
+<div class="row">
+    <!-- 左サイドバー: 追加フォーム -->
+    <div class="col-xl-2 col-lg-3 col-md-4">
+        <div class="sidebar-forms sticky-top" style="top: 20px;">
+            <!-- テキスト追加フォーム -->
+            <div class="card border-primary mb-3">
+                <div class="card-header bg-primary text-white py-2">
+                    <h6 class="mb-0"><i class="bi bi-file-text"></i> テキスト追加</h6>
+                </div>
+                <div class="card-body p-3">
+                    <form asp-controller="TextKeyValues" asp-action="Upsert" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
+                        <input type="hidden" name="Id" value="00000000-0000-0000-0000-000000000000" />
+                        <input type="hidden" name="Year" value="@Model.SelectedYear" />
+
+                        <div class="mb-3">
+                            <label class="form-label mb-1">キー</label>
+                            <input type="text" class="form-control" name="Key" placeholder="例: schedule_time_1" required />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label mb-1">値</label>
+                            <textarea class="form-control" name="Value" rows="3" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-plus-circle"></i> 追加
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 画像追加フォーム -->
+            <div class="card border-success mb-3">
+                <div class="card-header bg-success text-white py-2">
+                    <h6 class="mb-0"><i class="bi bi-image"></i> 画像追加</h6>
+                </div>
+                <div class="card-body p-3">
+                    <form asp-controller="ImageKeyValues" asp-action="Upsert" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
+                        <input type="hidden" name="ItemToEdit.Id" value="00000000-0000-0000-0000-000000000000" />
+                        <input type="hidden" name="ItemToEdit.Year" value="@Model.SelectedYear" />
+
+                        <div class="mb-3">
+                            <label class="form-label mb-1">キー</label>
+                            <input type="text" class="form-control" name="ItemToEdit.Key" placeholder="例: logo_header_1" required />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label mb-1">画像ファイル</label>
+                            <input type="file" class="form-control" name="ImageFile" accept="image/*" required />
+                        </div>
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="bi bi-plus-circle"></i> 追加
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- クイックリンク -->
+            <div class="card mb-3">
+                <div class="card-body p-3">
+                    <div class="d-grid gap-2">
+                        <a asp-controller="TextKeyValues" asp-action="Index" class="btn btn-outline-primary">テキスト一覧</a>
+                        <a asp-controller="ImageKeyValues" asp-action="Index" class="btn btn-outline-success">画像一覧</a>
+                        <form asp-controller="Deploy" asp-action="Run" method="post">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
+                            <button type="submit" class="btn btn-info w-100">
+                                <i class="bi bi-cloud-upload"></i> デプロイ
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- メインコンテンツ: ツリービュー -->
+    <div class="col-xl-10 col-lg-9 col-md-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4>全データ一覧 <span class="badge bg-secondary">@Model.AllItems.Count()</span></h4>
+        </div>
+
+        @if (Model.TreeNodes.Any())
+        {
+            <div class="tree-view">
+                @foreach (var category in Model.TreeNodes)
+                {
+                    var allItemsInCategory = category.Children.SelectMany(n => n.Children.Select(c => c.Item)).Where(i => i != null).ToList();
+                    var deployedCount = allItemsInCategory.Count(i =>
+                    {
+                        if (i is FestivalManagementWeb.Models.TextKeyValue t) return t.Deployed == true;
+                        if (i is FestivalManagementWeb.Models.ImageKeyValue img) return img.Deployed == true;
+                        return false;
+                    });
+                    var totalCount = allItemsInCategory.Count;
+                    var hasUndeployed = deployedCount < totalCount;
+
+                    <div class="tree-category mb-4">
+                        <div class="tree-node category-node" data-node-id="category-@category.Name" onclick="toggleNode(this)">
+                            <span class="toggle-icon">▶</span>
+                            <strong>@category.Name</strong>
+                            <span class="badge bg-info ms-2">@totalCount 件</span>
+                            @if (hasUndeployed)
+                            {
+                                <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-triangle"></i> 未デプロイあり</span>
+                            }
+                            else if (totalCount > 0)
+                            {
+                                <span class="badge bg-success ms-2">✓ 全てデプロイ済み</span>
+                            }
+                        </div>
+                        <div class="tree-children" style="display: none;">
+                            @foreach (var number in category.Children)
+                            {
+                                var itemsInNumber = number.Children.Select(c => c.Item).Where(i => i != null).ToList();
+                                var numberDeployedCount = itemsInNumber.Count(i =>
+                                {
+                                    if (i is FestivalManagementWeb.Models.TextKeyValue text) return text.Deployed == true;
+                                    if (i is FestivalManagementWeb.Models.ImageKeyValue image) return image.Deployed == true;
+                                    return false;
+                                });
+                                var numberTotalCount = itemsInNumber.Count;
+                                var numberHasUndeployed = numberDeployedCount < numberTotalCount;
+
+                                <div class="tree-number ms-5 mb-3">
+                                    <div class="tree-node number-node" data-node-id="number-@category.Name-@number.Name" onclick="toggleNode(this)">
+                                        <span class="toggle-icon">▶</span>
+                                        <strong>番号: @number.Name</strong>
+                                        <span class="badge bg-secondary ms-2">@numberTotalCount 件</span>
+                                        @if (numberHasUndeployed)
+                                        {
+                                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-triangle"></i> 未デプロイあり</span>
+                                        }
+                                        else if (numberTotalCount > 0)
+                                        {
+                                            <span class="badge bg-success ms-2">✓</span>
+                                        }
+                                    </div>
+                                    <div class="tree-children" style="display: none;">
+                                        @foreach (var subcategory in number.Children)
+                                        {
+                                            var item = subcategory.Item;
+                                            <div class="tree-item ms-4 mt-2 p-3 border rounded bg-white">
+                                                @if (item is FestivalManagementWeb.Models.TextKeyValue textItem)
+                                                {
+                                                    <div class="mb-2 d-flex justify-content-between align-items-start">
+                                                        <div>
+                                                            <span class="badge bg-primary me-2">テキスト</span>
+                                                            <span style="font-size: 1em; font-weight: 500;">@textItem.Key</span>
+                                                        </div>
+                                                        <div class="btn-group">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-1" onclick='showTextModal(@Json.Serialize(textItem))' title="編集">
+                                                                <i class="bi bi-pencil"></i>
+                                                                <span>編集</span>
+                                                            </button>
+                                                            <button type="button" class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1" onclick="confirmDelete('@textItem.Id', 'text', '@textItem.Key')" title="削除">
+                                                                <i class="bi bi-trash"></i>
+                                                                <span>削除</span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="ps-3 border-start border-3 border-primary">
+                                                        <div class="mb-2">
+                                                            <div style="max-width: 100%; white-space: pre-wrap; background-color: #f8f9fa; padding: 8px 12px; border-radius: 4px; font-size: 0.95em;">@textItem.Value</div>
+                                                        </div>
+                                                        <div style="font-size: 0.9em;">
+                                                            <span class="me-3">
+                                                                @if (textItem.Deployed == true)
+                                                                {
+                                                                    <span class="badge bg-success">✓ デプロイ済み</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 未デプロイ</span>
+                                                                }
+                                                            </span>
+                                                            @if (textItem.DeployedDate != null)
+                                                            {
+                                                                <span>@Html.DisplayFor(_ => textItem.DeployedDate, "JstDateTime")</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else if (item is FestivalManagementWeb.Models.ImageKeyValue imageItem)
+                                                {
+                                                    <div class="mb-2 d-flex justify-content-between align-items-start">
+                                                        <div>
+                                                            <span class="badge bg-success me-2">画像</span>
+                                                            <span style="font-size: 1em; font-weight: 500;">@imageItem.Key</span>
+                                                        </div>
+                                                        <div class="btn-group">
+                                                            <button type="button" class="btn btn-outline-success btn-sm d-inline-flex align-items-center gap-1" onclick='showImageModal(@Json.Serialize(imageItem))' title="編集">
+                                                                <i class="bi bi-pencil"></i>
+                                                                <span>編集</span>
+                                                            </button>
+                                                            <button type="button" class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1" onclick="confirmDelete('@imageItem.Id', 'image', '@imageItem.Key')" title="削除">
+                                                                <i class="bi bi-trash"></i>
+                                                                <span>削除</span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="ps-3 border-start border-3 border-success">
+                                                        <div class="mb-2">
+                                                            @if (imageItem.HasImage)
+                                                            {
+                                                                <img src="@Url.Action("GetImage", "ImageKeyValues", new { id = imageItem.Id })"
+                                                                     style="max-width: 250px; max-height: 250px;"
+                                                                     alt="@imageItem.Key"
+                                                                     class="img-thumbnail" />
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="text-muted fst-italic">画像なし</div>
+                                                            }
+                                                        </div>
+                                                        <div style="font-size: 0.9em;">
+                                                            <span class="me-3">
+                                                                @if (imageItem.Deployed == true)
+                                                                {
+                                                                    <span class="badge bg-success">✓ デプロイ済み</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 未デプロイ</span>
+                                                                }
+                                                            </span>
+                                                            @if (imageItem.DeployedDate != null)
+                                                            {
+                                                                <span>@Html.DisplayFor(_ => imageItem.DeployedDate, "JstDateTime")</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-info">
+                データがありません。または、キーが命名規則（category_subcategory_number）に従っていません。
+            </div>
+        }
+    </div>
+</div>
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mt-3">@TempData["Error"]</div>
+}
+
+@if (TempData["Message"] != null)
+{
+    <div class="alert alert-success mt-3">@TempData["Message"]</div>
+}
+
+
+<!-- 編集用モーダル（編集のみ） -->
+<div class="modal fade" id="textModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="textForm" asp-controller="TextKeyValues" asp-action="Upsert" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
+                <input type="hidden" id="textId" name="Id" />
+                <input type="hidden" id="textYear" name="Year" value="@Model.SelectedYear" />
+                <input type="hidden" id="textDeployed" name="Deployed" />
+                <input type="hidden" id="textDeployedDate" name="DeployedDate" />
+
+                <div class="modal-header">
+                    <h5 class="modal-title">テキスト編集</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="textKey" class="form-label">キー</label>
+                        <input type="text" class="form-control" id="textKey" name="Key" required />
+                    </div>
+                    <div class="mb-3">
+                        <label for="textValue" class="form-label">値</label>
+                        <textarea class="form-control" id="textValue" name="Value" rows="10" required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> 保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="imageModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="imageForm" asp-controller="ImageKeyValues" asp-action="Upsert" method="post" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
+                <input type="hidden" id="imageId" name="ItemToEdit.Id" />
+                <input type="hidden" id="imageYear" name="ItemToEdit.Year" value="@Model.SelectedYear" />
+                <input type="hidden" id="imageGridFSFileId" name="ItemToEdit.GridFSFileId" />
+                <input type="hidden" id="imageDeployed" name="ItemToEdit.Deployed" />
+                <input type="hidden" id="imageDeployedDate" name="ItemToEdit.DeployedDate" />
+
+                <div class="modal-header">
+                    <h5 class="modal-title">画像編集</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="imageKey" class="form-label">キー</label>
+                        <input type="text" class="form-control" id="imageKey" name="ItemToEdit.Key" required />
+                    </div>
+                    <div class="mb-3" id="currentImageContainer">
+                        <label class="form-label">現在の画像</label>
+                        <div>
+                            <img id="currentImage" src="" style="max-width: 400px; max-height: 400px;" class="img-thumbnail" />
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="imageFile" class="form-label">画像ファイル</label>
+                        <input type="file" class="form-control" id="imageFile" name="ImageFile" accept="image/*" />
+                        <div class="form-text">変更する場合のみ選択してください</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-save"></i> 保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    .tree-view {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .tree-node {
+        cursor: pointer;
+        padding: 8px 12px;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+        user-select: none;
+        font-size: 1em;
+    }
+
+    .tree-node:hover {
+        background-color: #f0f0f0;
+    }
+
+    .category-node {
+        font-size: 1.05em;
+        background-color: #e3f2fd;
+        border-left: 4px solid #2196f3;
+        font-weight: 500;
+    }
+
+    .number-node {
+        background-color: #fff3e0;
+        border-left: 4px solid #ff9800;
+        font-size: 1em;
+    }
+
+    .toggle-icon {
+        display: inline-block;
+        width: 24px;
+        transition: transform 0.2s;
+        font-size: 0.9em;
+    }
+
+    .tree-node.expanded .toggle-icon {
+        transform: rotate(90deg);
+    }
+
+    .tree-children {
+        margin-left: 15px;
+    }
+
+    .tree-item {
+        background-color: #ffffff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        font-size: 1em;
+    }
+
+    .tree-item:hover {
+        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+        transform: translateY(-1px);
+        transition: all 0.2s;
+    }
+
+    /* 追加フォーム */
+    .add-form-container {
+        animation: slideDown 0.3s ease-out;
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* フローティング追加ボタン */
+    .floating-add-buttons {
+        position: fixed;
+        right: 30px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        z-index: 1000;
+    }
+
+    .floating-btn {
+        width: 140px;
+        height: 50px;
+        border-radius: 25px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border: none;
+    }
+
+    .floating-btn:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+    }
+
+    .floating-btn i {
+        font-size: 1.2em;
+    }
+
+    .floating-btn .btn-label {
+        font-size: 0.9em;
+    }
+
+    @@media (max-width: 768px) {
+        .floating-add-buttons {
+            right: 15px;
+        }
+
+        .floating-btn {
+            width: 50px;
+            height: 50px;
+        }
+
+        .floating-btn .btn-label {
+            display: none;
+        }
+    }
+</style>
+
+<script>
+    // LocalStorage のキー
+    const STORAGE_KEY = 'treeExpandedNodes';
+    const SCROLL_KEY = 'treeScrollPosition';
+
+    // 展開状態を保存
+    function saveExpandedState(nodeId, isExpanded) {
+        try {
+            let expandedNodes = [];
+
+            // localStorage から読み込み
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    expandedNodes = JSON.parse(stored);
+                    // 配列でない場合はリセット
+                    if (!Array.isArray(expandedNodes)) {
+                        console.warn('Invalid data in localStorage, resetting...');
+                        expandedNodes = [];
+                    }
+                }
+            } catch (parseError) {
+                console.error('Failed to parse localStorage data:', parseError);
+                expandedNodes = [];
+            }
+
+            if (isExpanded) {
+                if (!expandedNodes.includes(nodeId)) {
+                    expandedNodes.push(nodeId);
+                }
+            } else {
+                expandedNodes = expandedNodes.filter(id => id !== nodeId);
+            }
+
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(expandedNodes));
+        } catch (error) {
+            console.error('Failed to save expanded state:', error);
+            // localStorage が使えない場合は何もしない
+        }
+    }
+
+    // スクロール位置を保存
+    function saveScrollPosition() {
+        try {
+            const scrollY = window.scrollY || window.pageYOffset;
+            localStorage.setItem(SCROLL_KEY, scrollY.toString());
+        } catch (error) {
+            console.error('Failed to save scroll position:', error);
+        }
+    }
+
+    // スクロール位置を復元
+    function restoreScrollPosition() {
+        try {
+            const scrollY = localStorage.getItem(SCROLL_KEY);
+            if (scrollY) {
+                const position = parseInt(scrollY, 10);
+                if (!isNaN(position) && position >= 0) {
+                    window.scrollTo(0, position);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to restore scroll position:', error);
+        }
+    }
+
+    // 展開状態を復元
+    function restoreExpandedState() {
+        try {
+            let expandedNodes = [];
+
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                try {
+                    expandedNodes = JSON.parse(stored);
+                    // 配列でない場合は空配列にする
+                    if (!Array.isArray(expandedNodes)) {
+                        console.warn('Invalid expanded nodes data, ignoring...');
+                        expandedNodes = [];
+                        // 無効なデータをクリア
+                        localStorage.removeItem(STORAGE_KEY);
+                    }
+                } catch (parseError) {
+                    console.error('Failed to parse expanded nodes:', parseError);
+                    expandedNodes = [];
+                    localStorage.removeItem(STORAGE_KEY);
+                }
+            }
+
+            expandedNodes.forEach(nodeId => {
+                if (nodeId && typeof nodeId === 'string') {
+                    const node = document.querySelector(`[data-node-id="${nodeId}"]`);
+                    if (node) {
+                        const children = node.nextElementSibling;
+                        if (children && children.classList.contains('tree-children')) {
+                            children.style.display = 'block';
+                            node.classList.add('expanded');
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Failed to restore expanded state:', error);
+        }
+    }
+
+    function toggleNode(element) {
+        const children = element.nextElementSibling;
+        if (children && children.classList.contains('tree-children')) {
+            const isExpanded = children.style.display !== 'none';
+            const nodeId = element.getAttribute('data-node-id');
+
+            children.style.display = isExpanded ? 'none' : 'block';
+
+            if (isExpanded) {
+                element.classList.remove('expanded');
+                if (nodeId) saveExpandedState(nodeId, false);
+            } else {
+                element.classList.add('expanded');
+                if (nodeId) saveExpandedState(nodeId, true);
+            }
+        }
+    }
+
+    // ページロード時に展開状態とスクロール位置を復元
+    document.addEventListener('DOMContentLoaded', function() {
+        restoreExpandedState();
+        // スクロール復元は少し遅延させる（DOMの描画完了を待つ）
+        setTimeout(restoreScrollPosition, 100);
+    });
+
+    // ページを離れる前にスクロール位置を保存
+    window.addEventListener('beforeunload', saveScrollPosition);
+
+    // スクロール時に定期的に保存（リアルタイム保存）
+    let scrollTimeout = null;
+    window.addEventListener('scroll', function() {
+        if (scrollTimeout !== null) {
+            clearTimeout(scrollTimeout);
+        }
+        scrollTimeout = setTimeout(saveScrollPosition, 200);
+    });
+
+    function confirmDelete(id, type, key) {
+        if (confirm(`「${key}」を削除してもよろしいですか？\n\nこの操作は取り消せません。`)) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = type === 'text'
+                ? '@Url.Action("Delete", "TextKeyValues")'
+                : '@Url.Action("Delete", "ImageKeyValues")';
+
+            const idInput = document.createElement('input');
+            idInput.type = 'hidden';
+            idInput.name = 'id';
+            idInput.value = id;
+            form.appendChild(idInput);
+
+            const tokenInput = document.createElement('input');
+            tokenInput.type = 'hidden';
+            tokenInput.name = '__RequestVerificationToken';
+            tokenInput.value = document.querySelector('input[name="__RequestVerificationToken"]').value;
+            form.appendChild(tokenInput);
+
+            const returnUrlInput = document.createElement('input');
+            returnUrlInput.type = 'hidden';
+            returnUrlInput.name = 'returnUrl';
+            returnUrlInput.value = window.location.pathname + window.location.search;
+            form.appendChild(returnUrlInput);
+
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+
+    // インラインフォーム表示/非表示
+    function showTextForm() {
+        document.getElementById('textAddForm').style.display = 'block';
+        document.getElementById('imageAddForm').style.display = 'none';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function hideTextForm() {
+        document.getElementById('textAddForm').style.display = 'none';
+    }
+
+    function showImageForm() {
+        document.getElementById('imageAddForm').style.display = 'block';
+        document.getElementById('textAddForm').style.display = 'none';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function hideImageForm() {
+        document.getElementById('imageAddForm').style.display = 'none';
+    }
+
+    // モーダル（編集用）
+    function showTextModal(item) {
+        const modal = new bootstrap.Modal(document.getElementById('textModal'));
+        const form = document.getElementById('textForm');
+        form.reset();
+
+        document.getElementById('textId').value = item.Id || item.id || '';
+        document.getElementById('textKey').value = item.Key || item.key || '';
+        document.getElementById('textValue').value = item.Value || item.value || '';
+        document.getElementById('textYear').value = item.Year || item.year || @Model.SelectedYear;
+        document.getElementById('textDeployed').value = item.Deployed || item.deployed || false;
+        document.getElementById('textDeployedDate').value = item.DeployedDate || item.deployedDate || '';
+
+        modal.show();
+    }
+
+    function showImageModal(item) {
+        const modal = new bootstrap.Modal(document.getElementById('imageModal'));
+        const form = document.getElementById('imageForm');
+        form.reset();
+
+        const currentImage = document.getElementById('currentImage');
+
+        document.getElementById('imageId').value = item.Id || item.id || '';
+        document.getElementById('imageKey').value = item.Key || item.key || '';
+        document.getElementById('imageYear').value = item.Year || item.year || @Model.SelectedYear;
+        document.getElementById('imageGridFSFileId').value = item.GridFSFileId || item.gridFSFileId || '';
+        document.getElementById('imageDeployed').value = item.Deployed || item.deployed || false;
+        document.getElementById('imageDeployedDate').value = item.DeployedDate || item.deployedDate || '';
+
+        // 現在の画像を表示
+        if (item.HasImage || item.hasImage) {
+            currentImage.src = '@Url.Action("GetImage", "ImageKeyValues")?id=' + (item.Id || item.id);
+        }
+
+        modal.show();
+    }
+</script>
