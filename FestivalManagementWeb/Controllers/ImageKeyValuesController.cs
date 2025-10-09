@@ -21,6 +21,7 @@ namespace FestivalManagementWeb.Controllers
         private readonly IGridFSBucket _bucket;
         private readonly IYearBranchService _yearBranchService;
         private const int MaxDimension = 1920;
+        private const int DeliveryMaxDimension = 854;
 
         public ImageKeyValuesController(IImageKeyValueRepository imageRepository, IGridFSBucket bucket, IYearBranchService yearBranchService)
         {
@@ -113,7 +114,7 @@ namespace FestivalManagementWeb.Controllers
                 using (var memoryStream = new MemoryStream())
                 {
                     await model.ImageFile.CopyToAsync(memoryStream);
-                    var imageBytes = ResizeImage(memoryStream.ToArray());
+                    var imageBytes = ResizeImage(memoryStream.ToArray(), MaxDimension);
                     var guidFileName = $"{Guid.NewGuid():N}.png";
                     newGridFSFileId = await _bucket.UploadFromBytesAsync(guidFileName, imageBytes);
                     imageKeyValue.GridFSFileId = newGridFSFileId.Value;
@@ -195,8 +196,9 @@ namespace FestivalManagementWeb.Controllers
 
             try
             {
-                var stream = await _bucket.OpenDownloadStreamAsync(item.GridFSFileId);
-                return File(stream, "image/png");
+                var imageBytes = await _bucket.DownloadAsBytesAsync(item.GridFSFileId);
+                var resizedBytes = ResizeImage(imageBytes, DeliveryMaxDimension);
+                return File(resizedBytes, "image/png");
             }
             catch (GridFSFileNotFoundException)
             {
@@ -204,12 +206,17 @@ namespace FestivalManagementWeb.Controllers
             }
         }
 
-        private byte[] ResizeImage(byte[] originalBytes)
+        private byte[] ResizeImage(byte[] originalBytes, int maxDimension)
         {
             using (var inputStream = new SKMemoryStream(originalBytes))
             using (var originalBitmap = SKBitmap.Decode(inputStream))
             {
-                if (originalBitmap.Width <= MaxDimension && originalBitmap.Height <= MaxDimension)
+                if (originalBitmap == null)
+                {
+                    return originalBytes;
+                }
+
+                if (originalBitmap.Width <= maxDimension && originalBitmap.Height <= maxDimension)
                 {
                     using (var image = SKImage.FromBitmap(originalBitmap))
                     using (var data = image.Encode(SKEncodedImageFormat.Png, 100))
@@ -221,13 +228,13 @@ namespace FestivalManagementWeb.Controllers
                 int newWidth, newHeight;
                 if (originalBitmap.Width > originalBitmap.Height)
                 {
-                    newWidth = MaxDimension;
-                    newHeight = (int)(originalBitmap.Height * ((float)MaxDimension / originalBitmap.Width));
+                    newWidth = maxDimension;
+                    newHeight = (int)(originalBitmap.Height * ((float)maxDimension / originalBitmap.Width));
                 }
                 else
                 {
-                    newHeight = MaxDimension;
-                    newWidth = (int)(originalBitmap.Width * ((float)MaxDimension / originalBitmap.Height));
+                    newHeight = maxDimension;
+                    newWidth = (int)(originalBitmap.Width * ((float)maxDimension / originalBitmap.Height));
                 }
 
                 var imageInfo = new SKImageInfo(newWidth, newHeight);
