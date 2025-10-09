@@ -53,6 +53,8 @@ namespace FestivalManagementWeb.Controllers
         {
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             model.Year = selectedYear;
+            model.Deployed = false;
+            model.DeployedDate = null;
 
             if (model.Id != Guid.Empty)
             {
