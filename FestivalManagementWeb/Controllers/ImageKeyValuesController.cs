@@ -62,6 +62,8 @@ namespace FestivalManagementWeb.Controllers
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var imageKeyValue = model.ItemToEdit;
             imageKeyValue.Year = selectedYear;
+            imageKeyValue.Deployed = false;
+            imageKeyValue.DeployedDate = null;
 
             if (imageKeyValue.Id != Guid.Empty)
             {
