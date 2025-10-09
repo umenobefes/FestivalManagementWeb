@@ -56,7 +56,7 @@ namespace FestivalManagementWeb.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [CosmosCapacityGuard]
-        public async Task<IActionResult> Upsert(ImageKeyValueViewModel model)
+        public async Task<IActionResult> Upsert(ImageKeyValueViewModel model, string? returnUrl)
         {
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var imageKeyValue = model.ItemToEdit;
@@ -67,72 +67,86 @@ namespace FestivalManagementWeb.Controllers
                 var existingById = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
                 if (existingById == null || existingById.Year != selectedYear)
                 {
-                    ModelState.AddModelError(string.Empty, "The requested item is not available for the current year.");
+                    TempData["Error"] = "指定されたアイテムは現在の年度で利用できません。";
+                    if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+                    {
+                        return Redirect(returnUrl);
+                    }
+                    return RedirectToAction(nameof(Index));
                 }
             }
 
             var existingByKey = await _imageRepository.GetByKeyAsync(imageKeyValue.Key, selectedYear);
             if (existingByKey != null && existingByKey.Id != imageKeyValue.Id)
             {
-                ModelState.AddModelError("ItemToEdit.Key", "The provided key already exists for the selected year.");
-            }
-
-            if (model.ImageFile == null && imageKeyValue.Id == Guid.Empty)
-            {
-                ModelState.AddModelError("ImageFile", "Please upload an image file.");
-            }
-
-            if (ModelState.IsValid)
-            {
-                ObjectId? newGridFSFileId = null;
-
-                if (model.ImageFile != null && model.ImageFile.Length > 0)
+                TempData["Error"] = $"キー「{imageKeyValue.Key}」は既に存在します。";
+                if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
                 {
-                    if (imageKeyValue.Id != Guid.Empty)
-                    {
-                        var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
-                        if (existingItem != null && existingItem.GridFSFileId != ObjectId.Empty)
-                        {
-                            await _bucket.DeleteAsync(existingItem.GridFSFileId);
-                        }
-                    }
-
-                    using (var memoryStream = new MemoryStream())
-                    {
-                        await model.ImageFile.CopyToAsync(memoryStream);
-                        var imageBytes = ResizeImage(memoryStream.ToArray());
-                        var guidFileName = $"{Guid.NewGuid():N}.png";
-                        newGridFSFileId = await _bucket.UploadFromBytesAsync(guidFileName, imageBytes);
-                        imageKeyValue.GridFSFileId = newGridFSFileId.Value;
-                    }
-                }
-
-                if (imageKeyValue.Id == Guid.Empty)
-                {
-                    imageKeyValue.Id = Guid.NewGuid();
-                    await _imageRepository.CreateAsync(imageKeyValue);
-                }
-                else
-                {
-                    if (newGridFSFileId == null)
-                    {
-                        var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
-                        imageKeyValue.GridFSFileId = existingItem?.GridFSFileId ?? ObjectId.Empty;
-                    }
-                    await _imageRepository.UpdateAsync(imageKeyValue);
+                    return Redirect(returnUrl);
                 }
                 return RedirectToAction(nameof(Index));
             }
 
-            model.AllItems = await _imageRepository.GetAllAsync(selectedYear);
-            model.SelectedYear = selectedYear;
-            ViewData["SelectedYear"] = selectedYear;
-            return View("Index", model);
+            if (model.ImageFile == null && imageKeyValue.Id == Guid.Empty)
+            {
+                TempData["Error"] = "画像ファイルをアップロードしてください。";
+                if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+                {
+                    return Redirect(returnUrl);
+                }
+                return RedirectToAction(nameof(Index));
+            }
+
+            ObjectId? newGridFSFileId = null;
+
+            if (model.ImageFile != null && model.ImageFile.Length > 0)
+            {
+                if (imageKeyValue.Id != Guid.Empty)
+                {
+                    var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
+                    if (existingItem != null && existingItem.GridFSFileId != ObjectId.Empty)
+                    {
+                        await _bucket.DeleteAsync(existingItem.GridFSFileId);
+                    }
+                }
+
+                using (var memoryStream = new MemoryStream())
+                {
+                    await model.ImageFile.CopyToAsync(memoryStream);
+                    var imageBytes = ResizeImage(memoryStream.ToArray());
+                    var guidFileName = $"{Guid.NewGuid():N}.png";
+                    newGridFSFileId = await _bucket.UploadFromBytesAsync(guidFileName, imageBytes);
+                    imageKeyValue.GridFSFileId = newGridFSFileId.Value;
+                }
+            }
+
+            if (imageKeyValue.Id == Guid.Empty)
+            {
+                imageKeyValue.Id = Guid.NewGuid();
+                await _imageRepository.CreateAsync(imageKeyValue);
+                TempData["Message"] = $"「{imageKeyValue.Key}」を追加しました。";
+            }
+            else
+            {
+                if (newGridFSFileId == null)
+                {
+                    var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
+                    imageKeyValue.GridFSFileId = existingItem?.GridFSFileId ?? ObjectId.Empty;
+                }
+                await _imageRepository.UpdateAsync(imageKeyValue);
+                TempData["Message"] = $"「{imageKeyValue.Key}」を更新しました。";
+            }
+
+            if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+            {
+                return Redirect(returnUrl);
+            }
+            return RedirectToAction(nameof(Index));
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Delete(Guid id)
+        public async Task<IActionResult> Delete(Guid id, string? returnUrl)
         {
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var itemToDelete = await _imageRepository.GetByIdAsync(id);
@@ -150,13 +164,20 @@ namespace FestivalManagementWeb.Controllers
                     }
                 }
                 await _imageRepository.DeleteAsync(id);
+                TempData["Message"] = $"「{itemToDelete.Key}」を削除しました。";
             }
             else
             {
-                TempData["Error"] = "Unable to delete the requested item.";
+                TempData["Error"] = "削除対象のアイテムが見つかりません。";
+            }
+
+            if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+            {
+                return Redirect(returnUrl);
             }
             return RedirectToAction(nameof(Index));
         }
+
 
         public async Task<IActionResult> GetImage(Guid id)
         {
