@@ -49,63 +49,80 @@ namespace FestivalManagementWeb.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [CosmosCapacityGuard]
-        public async Task<IActionResult> Upsert([Bind("ItemToEdit")] TextKeyValueViewModel model)
+        public async Task<IActionResult> Upsert(TextKeyValue model, string? returnUrl)
         {
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
-            var textKeyValue = model.ItemToEdit;
-            textKeyValue.Year = selectedYear;
+            model.Year = selectedYear;
+            model.Deployed = false;
+            model.DeployedDate = null;
 
-            if (textKeyValue.Id != Guid.Empty)
+            if (model.Id != Guid.Empty)
             {
-                var existingById = await _textRepository.GetByIdAsync(textKeyValue.Id);
+                var existingById = await _textRepository.GetByIdAsync(model.Id);
                 if (existingById == null || existingById.Year != selectedYear)
                 {
-                    ModelState.AddModelError(string.Empty, "The requested item is not available for the current year.");
+                    TempData["Error"] = "指定されたアイテムは現在の年度で利用できません。";
+                    if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+                    {
+                        return Redirect(returnUrl);
+                    }
+                    return RedirectToAction(nameof(Index));
                 }
             }
 
-            var existingByKey = await _textRepository.GetByKeyAsync(textKeyValue.Key, selectedYear);
-            if (existingByKey != null && existingByKey.Id != textKeyValue.Id)
+            var existingByKey = await _textRepository.GetByKeyAsync(model.Key, selectedYear);
+            if (existingByKey != null && existingByKey.Id != model.Id)
             {
-                ModelState.AddModelError("ItemToEdit.Key", "The provided key already exists for the selected year.");
-            }
-
-            if (ModelState.IsValid)
-            {
-                if (textKeyValue.Id == Guid.Empty)
+                TempData["Error"] = $"キー「{model.Key}」は既に存在します。";
+                if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
                 {
-                    textKeyValue.Id = Guid.NewGuid();
-                    await _textRepository.CreateAsync(textKeyValue);
-                }
-                else
-                {
-                    await _textRepository.UpdateAsync(textKeyValue);
+                    return Redirect(returnUrl);
                 }
                 return RedirectToAction(nameof(Index));
             }
 
-            model.AllItems = await _textRepository.GetAllAsync(selectedYear);
-            model.SelectedYear = selectedYear;
-            ViewData["SelectedYear"] = selectedYear;
-            return View("Index", model);
+            if (model.Id == Guid.Empty)
+            {
+                model.Id = Guid.NewGuid();
+                await _textRepository.CreateAsync(model);
+                TempData["Message"] = $"「{model.Key}」を追加しました。";
+            }
+            else
+            {
+                await _textRepository.UpdateAsync(model);
+                TempData["Message"] = $"「{model.Key}」を更新しました。";
+            }
+
+            if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+            {
+                return Redirect(returnUrl);
+            }
+            return RedirectToAction(nameof(Index));
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Delete(Guid id)
+        public async Task<IActionResult> Delete(Guid id, string? returnUrl)
         {
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var item = await _textRepository.GetByIdAsync(id);
             if (item != null && item.Year == selectedYear)
             {
                 await _textRepository.DeleteAsync(id);
+                TempData["Message"] = $"「{item.Key}」を削除しました。";
             }
             else
             {
-                TempData["Error"] = "Unable to delete the requested item.";
+                TempData["Error"] = "削除対象のアイテムが見つかりません。";
+            }
+
+            if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+            {
+                return Redirect(returnUrl);
             }
             return RedirectToAction(nameof(Index));
         }
+
     }
 }
 
