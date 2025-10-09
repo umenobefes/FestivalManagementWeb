@@ -21,6 +21,7 @@ namespace FestivalManagementWeb.Controllers
         private readonly IGridFSBucket _bucket;
         private readonly IYearBranchService _yearBranchService;
         private const int MaxDimension = 1920;
+        private const int DeliveryMaxDimension = 854;
 
         public ImageKeyValuesController(IImageKeyValueRepository imageRepository, IGridFSBucket bucket, IYearBranchService yearBranchService)
         {
@@ -56,83 +57,99 @@ namespace FestivalManagementWeb.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [CosmosCapacityGuard]
-        public async Task<IActionResult> Upsert(ImageKeyValueViewModel model)
+        public async Task<IActionResult> Upsert(ImageKeyValueViewModel model, string? returnUrl)
         {
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var imageKeyValue = model.ItemToEdit;
             imageKeyValue.Year = selectedYear;
+            imageKeyValue.Deployed = false;
+            imageKeyValue.DeployedDate = null;
 
             if (imageKeyValue.Id != Guid.Empty)
             {
                 var existingById = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
                 if (existingById == null || existingById.Year != selectedYear)
                 {
-                    ModelState.AddModelError(string.Empty, "The requested item is not available for the current year.");
+                    TempData["Error"] = "指定されたアイテムは現在の年度で利用できません。";
+                    if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+                    {
+                        return Redirect(returnUrl);
+                    }
+                    return RedirectToAction(nameof(Index));
                 }
             }
 
             var existingByKey = await _imageRepository.GetByKeyAsync(imageKeyValue.Key, selectedYear);
             if (existingByKey != null && existingByKey.Id != imageKeyValue.Id)
             {
-                ModelState.AddModelError("ItemToEdit.Key", "The provided key already exists for the selected year.");
-            }
-
-            if (model.ImageFile == null && imageKeyValue.Id == Guid.Empty)
-            {
-                ModelState.AddModelError("ImageFile", "Please upload an image file.");
-            }
-
-            if (ModelState.IsValid)
-            {
-                ObjectId? newGridFSFileId = null;
-
-                if (model.ImageFile != null && model.ImageFile.Length > 0)
+                TempData["Error"] = $"キー「{imageKeyValue.Key}」は既に存在します。";
+                if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
                 {
-                    if (imageKeyValue.Id != Guid.Empty)
-                    {
-                        var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
-                        if (existingItem != null && existingItem.GridFSFileId != ObjectId.Empty)
-                        {
-                            await _bucket.DeleteAsync(existingItem.GridFSFileId);
-                        }
-                    }
-
-                    using (var memoryStream = new MemoryStream())
-                    {
-                        await model.ImageFile.CopyToAsync(memoryStream);
-                        var imageBytes = ResizeImage(memoryStream.ToArray());
-                        var guidFileName = $"{Guid.NewGuid():N}.png";
-                        newGridFSFileId = await _bucket.UploadFromBytesAsync(guidFileName, imageBytes);
-                        imageKeyValue.GridFSFileId = newGridFSFileId.Value;
-                    }
-                }
-
-                if (imageKeyValue.Id == Guid.Empty)
-                {
-                    imageKeyValue.Id = Guid.NewGuid();
-                    await _imageRepository.CreateAsync(imageKeyValue);
-                }
-                else
-                {
-                    if (newGridFSFileId == null)
-                    {
-                        var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
-                        imageKeyValue.GridFSFileId = existingItem?.GridFSFileId ?? ObjectId.Empty;
-                    }
-                    await _imageRepository.UpdateAsync(imageKeyValue);
+                    return Redirect(returnUrl);
                 }
                 return RedirectToAction(nameof(Index));
             }
 
-            model.AllItems = await _imageRepository.GetAllAsync(selectedYear);
-            model.SelectedYear = selectedYear;
-            ViewData["SelectedYear"] = selectedYear;
-            return View("Index", model);
+            if (model.ImageFile == null && imageKeyValue.Id == Guid.Empty)
+            {
+                TempData["Error"] = "画像ファイルをアップロードしてください。";
+                if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+                {
+                    return Redirect(returnUrl);
+                }
+                return RedirectToAction(nameof(Index));
+            }
+
+            ObjectId? newGridFSFileId = null;
+
+            if (model.ImageFile != null && model.ImageFile.Length > 0)
+            {
+                if (imageKeyValue.Id != Guid.Empty)
+                {
+                    var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
+                    if (existingItem != null && existingItem.GridFSFileId != ObjectId.Empty)
+                    {
+                        await _bucket.DeleteAsync(existingItem.GridFSFileId);
+                    }
+                }
+
+                using (var memoryStream = new MemoryStream())
+                {
+                    await model.ImageFile.CopyToAsync(memoryStream);
+                    var imageBytes = ResizeImage(memoryStream.ToArray(), MaxDimension);
+                    var guidFileName = $"{Guid.NewGuid():N}.png";
+                    newGridFSFileId = await _bucket.UploadFromBytesAsync(guidFileName, imageBytes);
+                    imageKeyValue.GridFSFileId = newGridFSFileId.Value;
+                }
+            }
+
+            if (imageKeyValue.Id == Guid.Empty)
+            {
+                imageKeyValue.Id = Guid.NewGuid();
+                await _imageRepository.CreateAsync(imageKeyValue);
+                TempData["Message"] = $"「{imageKeyValue.Key}」を追加しました。";
+            }
+            else
+            {
+                if (newGridFSFileId == null)
+                {
+                    var existingItem = await _imageRepository.GetByIdAsync(imageKeyValue.Id);
+                    imageKeyValue.GridFSFileId = existingItem?.GridFSFileId ?? ObjectId.Empty;
+                }
+                await _imageRepository.UpdateAsync(imageKeyValue);
+                TempData["Message"] = $"「{imageKeyValue.Key}」を更新しました。";
+            }
+
+            if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+            {
+                return Redirect(returnUrl);
+            }
+            return RedirectToAction(nameof(Index));
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Delete(Guid id)
+        public async Task<IActionResult> Delete(Guid id, string? returnUrl)
         {
             var selectedYear = await _yearBranchService.GetCurrentYearAsync();
             var itemToDelete = await _imageRepository.GetByIdAsync(id);
@@ -150,13 +167,20 @@ namespace FestivalManagementWeb.Controllers
                     }
                 }
                 await _imageRepository.DeleteAsync(id);
+                TempData["Message"] = $"「{itemToDelete.Key}」を削除しました。";
             }
             else
             {
-                TempData["Error"] = "Unable to delete the requested item.";
+                TempData["Error"] = "削除対象のアイテムが見つかりません。";
+            }
+
+            if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+            {
+                return Redirect(returnUrl);
             }
             return RedirectToAction(nameof(Index));
         }
+
 
         public async Task<IActionResult> GetImage(Guid id)
         {
@@ -174,8 +198,9 @@ namespace FestivalManagementWeb.Controllers
 
             try
             {
-                var stream = await _bucket.OpenDownloadStreamAsync(item.GridFSFileId);
-                return File(stream, "image/png");
+                var imageBytes = await _bucket.DownloadAsBytesAsync(item.GridFSFileId);
+                var resizedBytes = ResizeImage(imageBytes, DeliveryMaxDimension);
+                return File(resizedBytes, "image/png");
             }
             catch (GridFSFileNotFoundException)
             {
@@ -183,12 +208,17 @@ namespace FestivalManagementWeb.Controllers
             }
         }
 
-        private byte[] ResizeImage(byte[] originalBytes)
+        private byte[] ResizeImage(byte[] originalBytes, int maxDimension)
         {
             using (var inputStream = new SKMemoryStream(originalBytes))
             using (var originalBitmap = SKBitmap.Decode(inputStream))
             {
-                if (originalBitmap.Width <= MaxDimension && originalBitmap.Height <= MaxDimension)
+                if (originalBitmap == null)
+                {
+                    return originalBytes;
+                }
+
+                if (originalBitmap.Width <= maxDimension && originalBitmap.Height <= maxDimension)
                 {
                     using (var image = SKImage.FromBitmap(originalBitmap))
                     using (var data = image.Encode(SKEncodedImageFormat.Png, 100))
@@ -200,13 +230,13 @@ namespace FestivalManagementWeb.Controllers
                 int newWidth, newHeight;
                 if (originalBitmap.Width > originalBitmap.Height)
                 {
-                    newWidth = MaxDimension;
-                    newHeight = (int)(originalBitmap.Height * ((float)MaxDimension / originalBitmap.Width));
+                    newWidth = maxDimension;
+                    newHeight = (int)(originalBitmap.Height * ((float)maxDimension / originalBitmap.Width));
                 }
                 else
                 {
-                    newHeight = MaxDimension;
-                    newWidth = (int)(originalBitmap.Width * ((float)MaxDimension / originalBitmap.Height));
+                    newHeight = maxDimension;
+                    newWidth = (int)(originalBitmap.Width * ((float)maxDimension / originalBitmap.Height));
                 }
 
                 var imageInfo = new SKImageInfo(newWidth, newHeight);
